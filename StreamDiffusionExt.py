@@ -281,37 +281,63 @@ class StreamDiffusionExt:
                 self.logger.log(f'Error Startstream: Failed to start streaming process without command window. Error: {e}', level='ERROR')
             return
                     
-        bat_file_path = os.path.join(self.ownerComp.par.Basefolder.eval(), 'Start_StreamDiffusion.bat')
+        
+        if platform.system() == 'Windows':
+            bat_file_path = os.path.join(self.ownerComp.par.Basefolder.eval(), 'Start_StreamDiffusion.bat')
+        elif platform.system() == 'Darwin':
+            bat_file_path = os.path.join(self.ownerComp.par.Basefolder.eval(), 'Start_StreamDiffusion.sh')
+
         debug_cmd = 'pause' if self.ownerComp.par.Debugcmd.eval() else ''
         use_powershell = self.ownerComp.par.Powershell.eval()
         if use_powershell:
             batch_file_content = f"""
-@echo off
-cd /d %~dp0
-if exist venv (
-    PowerShell -Command "& {{& 'venv\\Scripts\\Activate.ps1'; & 'venv\\Scripts\\python.exe' 'streamdiffusionTD\\main_sdtd.py'}}"
-) else (
-    PowerShell -Command "& {{& '.venv\\Scripts\\Activate.ps1'; & '.venv\\Scripts\\python.exe' 'streamdiffusionTD\\main_sdtd.py'}}"
-)
-    {debug_cmd}
+                @echo off
+                cd /d %~dp0
+                if exist venv (
+                    PowerShell -Command "& {{& 'venv\\Scripts\\Activate.ps1'; & 'venv\\Scripts\\python.exe' 'streamdiffusionTD\\main_sdtd.py'}}"
+                ) else (
+                    PowerShell -Command "& {{& '.venv\\Scripts\\Activate.ps1'; & '.venv\\Scripts\\python.exe' 'streamdiffusionTD\\main_sdtd.py'}}"
+                )
+                {debug_cmd}
             """
         else:
             batch_file_content = f"""
-@echo off
-cd /d %~dp0
-if exist venv (
-    call venv\\Scripts\\activate.bat
-    venv\\Scripts\\python.exe streamdiffusionTD\\main_sdtd.py
-) else (
-    call .venv\\Scripts\\activate.bat
-    .venv\\Scripts\\python.exe streamdiffusionTD\\main_sdtd.py
-)
-    {debug_cmd}
-            """
+                #!/bin/sh
+                cd "$(dirname "$0")"
+                if [ -d "venv" ]; then
+                    source venv/bin/activate
+                    python streamdiffusionTD/main_sdtd.py
+                else
+                    source .venv/bin/activate
+                    python streamdiffusionTD/main_sdtd.py
+                fi
+                {debug_cmd}
+                """
+        if platform.system() == 'Darwin':
+            batch_file_content = f"""
+                #!/bin/sh
+                cd "$(dirname "$0")"
+                if [ -d "venv" ]; then
+                    source venv/bin/activate
+                    python streamdiffusionTD/main_sdtd.py
+                else
+                    source .venv/bin/activate
+                    python streamdiffusionTD/main_sdtd.py
+                fi
+                {debug_cmd}
+                """
         with open(bat_file_path, 'w') as bat_file:
             bat_file.write(batch_file_content)
-        subprocess.Popen(['cmd.exe', '/C', bat_file_path], cwd=self.ownerComp.par.Basefolder.eval())
-        self.logger.log(f'Started streaming using {("PowerShell" if use_powershell else "CMD")}.', level='INFO')
+        
+        if platform.system() == 'Windows':
+            # Execute bat file in a new command window
+            # subprocess.Popen('start /min cmd.exe /C call ' + bat_file_path, cwd=self.ownerComp.par.Basefolder.eval(), shell=True)
+            subprocess.Popen(['cmd.exe', '/C', bat_file_path], cwd=self.ownerComp.par.Basefolder.eval())
+            self.logger.log(f'Started streaming using {("PowerShell" if use_powershell else "CMD")}.', level='INFO')
+        elif platform.system() == 'Darwin':
+            os.system(f"chmod +x {bat_file_path}")
+            subprocess.Popen(['open', '-a', 'Terminal', bat_file_path], cwd=self.ownerComp.par.Basefolder.eval())
+            self.logger.log(f'Started streaming using Terminal.', level='INFO')
 
         
 #     def Startstream(self, input_type=None, sender_name=None):
@@ -463,7 +489,6 @@ if exist venv (
         print("clone stream diffusion")
         repo_url = 'https://github.com/cumulo-autumn/StreamDiffusion.git'
         base_folder_param = self.ownerComp.par.Basefolder  # Adhering to PND
-        print(base_folder_param)
         chosen_folder = base_folder_param.eval() if base_folder_param and base_folder_param.eval() else None
 
         # Check if the chosen_folder is already a git repository
@@ -526,21 +551,13 @@ if exist venv (
         # If the user cancels the folder selection, chosen_folder will be None
         if chosen_folder is None:
             return False
-        # print("chosen folder")
+
         # Prepare the command to clone the repository
         git_folder_name = repo_url.split('/')[-1].replace('.git', '')
         clone_destination = os.path.join(chosen_folder, git_folder_name)
-        from platform import system
-
-        
-
-        print("clone destination")
-        print(clone_destination)
-
         if (platform.system() == 'Windows'):
             clone_destination = clone_destination.replace('/', '\\')  # Ensure the path uses backslashes
-        print("clone destination")
-        print(clone_destination)
+        
         # Execute the command to clone the repository
         try:
             command = ['git', 'clone', repo_url, clone_destination]
@@ -787,8 +804,6 @@ if exist venv (
 import requests
 import json
 import subprocess
-import platform
-
 
 def get_repo_details(model_id):
     url = f"https://huggingface.co/api/models/{model_id}"
@@ -1030,20 +1045,20 @@ print(json.dumps(model_details))
             echo "Installing"
 
             
-            pip install --upgrade pip --trusted-host pypi.org
+            pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org --upgrade pip 
             
             
             echo "Installing 'wheel' to ensure successful building of packages..."
-            python -m pip install wheel --trusted-host pypi.org
+            pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org wheel
 
             echo "Installing dependencies with pip from the activated virtual environment..."
             
-            python -m pip install pip install --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/cpu --trusted-host download.pytorch.org
-            python -m pip . --trusted-host pypi.org
-            python -m pip install -r streamdiffusionTD/requirements.txt --trusted-host pypi.org
+            pip install pip install --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/cpu --trusted-host download.pytorch.org
+            pip --trusted-host pypi.org --trusted-host files.pythonhosted.org .
+            pip install -r --trusted-host pypi.org --trusted-host files.pythonhosted.org streamdiffusionTD/requirements.txt
 
-            python -m pip uninstall --yes numpy
-            python -m pip install numpy --trusted-host pypi.org
+            pip uninstall --yes numpy
+            pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org numpy
 
             echo "Installation Finished"
             read -p "Press any key to continue..."
@@ -1065,10 +1080,14 @@ print(json.dumps(model_details))
             subprocess.Popen(['cmd.exe', '/C', bat_file_path], cwd=base_folder)
         else:
             print("running sh file")
-            os.chmod(bat_file_path, 0o755)
-            print(bat_file_path + base_folder)
-            result = subprocess.run(['sh', bat_file_path], cwd=base_folder, stdout=subprocess.PIPE)
-            print(result.stdout.decode('utf-8'))
+            os.system(f"chmod +x {bat_file_path}")
+            subprocess.Popen(['open', '-a', 'Terminal', bat_file_path], cwd=base_folder)
+            self.logger.log(f'Started streaming using Terminal.', level='INFO')
+            
+            #os.chmod(bat_file_path, 0o755)
+            #print(bat_file_path + base_folder)
+            #result = subprocess.run(['sh', bat_file_path], cwd=base_folder, stdout=subprocess.PIPE)
+            #print(result.stdout.decode('utf-8'))
 
             
         print("StreamDiffusion installation initiated with detected Python 3.10 and CUDA version.")
@@ -1098,31 +1117,28 @@ print(json.dumps(model_details))
         It activates the Python virtual environment and runs the command for TensorRT installation.
         """
         bat_file_path = os.path.join(self.ownerComp.par.Basefolder.eval(), 'Install_TensorRT.bat')
-
         batch_file_content = f"""
-        @echo off
-        echo Current directory: %CD%
-        cd /d "{self.ownerComp.par.Basefolder.eval()}"
+@echo off
+echo Current directory: %CD%
+cd /d "{self.ownerComp.par.Basefolder.eval()}"
 
-        echo Attempting to activate virtual environment...
-        call "venv\\Scripts\\activate.bat"
+echo Attempting to activate virtual environment...
+call "venv\\Scripts\\activate.bat"
 
-        rem Check if the virtual environment was activated successfully
-        if "%VIRTUAL_ENV%" == "" (
-            echo Failed to activate virtual environment. Please check the path and ensure the venv exists.
-            pause /b 1
-        ) else (
-            echo Virtual environment activated.
-        )
+rem Check if the virtual environment was activated successfully
+if "%VIRTUAL_ENV%" == "" (
+    echo Failed to activate virtual environment. Please check the path and ensure the venv exists.
+    pause /b 1
+) else (
+    echo Virtual environment activated.
+)
 
-        echo Installing TensorRT...
-        python -m streamdiffusion.tools.install-tensorrt
+echo Installing TensorRT...
+python -m streamdiffusion.tools.install-tensorrt
 
-        echo TensorRT installation finished
-        pause
+echo TensorRT installation finished
+pause
         """
-
-        
         print("Writing batch file for TensorRT installation...")
         # Write the batch file content
         with open(bat_file_path, 'w') as bat_file:
