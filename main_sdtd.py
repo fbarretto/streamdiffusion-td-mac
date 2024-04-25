@@ -209,6 +209,7 @@ def image_generation_process(
     osc_transmit_port: Optional[int] = None,
     scheduler_name: str = "EulerAncestral",
     use_karras_sigmas: bool = False,
+    device = Literal["cpu","cuda", "mps"] = "cuda"
 
 ) -> None:
     """
@@ -576,6 +577,7 @@ def main():
     scheduler_name = config.get("scheduler_name", "EulerAncestral")
     use_karras_sigmas = config.get("use_karras_sigmas", False)
     input_mem_name = config["input_mem_name"]
+    device = torch.device("cuda" if torch.cuda.is_available() else "mps")
     print(f"\n\ninput_mem_name: {input_mem_name}\n")
 
 
@@ -633,7 +635,8 @@ def main():
                 input_mem_name,
                 osc_transmit_port,
                 scheduler_name,
-                use_karras_sigmas
+                use_karras_sigmas,
+                device
                 ),
         )
         generation_process.start()

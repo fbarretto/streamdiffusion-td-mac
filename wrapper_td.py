@@ -32,7 +32,7 @@ class StreamDiffusionWrapper:
         output_type: Literal["pil", "pt", "np", "latent"] = "pil",
         lcm_lora_id: Optional[str] = None,
         vae_id: Optional[str] = None,
-        device: Literal["cpu", "mps",  "cuda"] = "cuda",
+        device: Literal["cpu", "mps", "cuda"] = "cuda",
         dtype: torch.dtype = torch.float16,
         frame_buffer_size: int = 1,
         width: int = 512,
