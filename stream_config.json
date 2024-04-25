@@ -1,8 +1,8 @@
 {
     "model_id_or_path": "runwayml/stable-diffusion-v1-5",
     "t_index_list": [
-        10,
-        35
+        1,
+        4
     ],
     "prompt": "default fancy banana",
     "negative_prompt": "negative prompts do nothing",
@@ -26,6 +26,5 @@
     "input_mem_name": "StreamDiffusion-TD",
     "output_mem_name": "sd_to_td",
     "scheduler_name": "Euler",
-    "use_karras_sigmas": false,
-    "device": "mps"
+    "use_karras_sigmas": false
 }
