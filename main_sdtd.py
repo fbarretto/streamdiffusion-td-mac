@@ -209,7 +209,7 @@ def image_generation_process(
     osc_transmit_port: Optional[int] = None,
     scheduler_name: str = "EulerAncestral",
     use_karras_sigmas: bool = False,
-    device = Literal["cpu","cuda", "mps"] = "cuda"
+    device: Literal["cpu","cuda", "mps"] = "cuda"
 
 ) -> None:
     """
