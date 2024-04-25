@@ -75,7 +75,6 @@ class StreamDiffusionExt:
                         level='INFO') 
 
     def Updatesettings(self):
-        print("update settings")
         """
         Sends the four settings (Prompt, Delta, Guidance Scale, and Negative Prompt) to the OSC Out DAT.
         """
@@ -106,7 +105,6 @@ class StreamDiffusionExt:
             osc_out.sendOSC(t_index_list_address, t_index_list)
 
     def send_osc_messages(self, message_dict):
-        print("send osc messages")
         """
         Sends OSC messages to multiple addresses.
 
@@ -130,11 +128,9 @@ class StreamDiffusionExt:
     #         self.logger.log(f'Gaussian Mixing {"enabled" if gaus_prompt_blend_value else "disabled"}', level='INFO')
 
     def Generatesingle(self):
-        print("generate single")
         run("parent.SDTD.op('numpy_share_out').par.Frameready = True", endFrame = True)
 
     def Promptblock(self):
-        print("prompt block")
         """
         Sends the concept and weight from each block in the Promptdict sequence to the OSC Out DAT.
         If par.Normpweights is True, the weights are normalized so that their sum equals the value of par.Totalpweights.
@@ -171,7 +167,6 @@ class StreamDiffusionExt:
 
 
     def Updatestreamout(self):
-        print("update stream out")
         current_name = self.ownerComp.par.Streamoutname.eval()
         # Check if the current name ends with a number
         if re.search(r'\d+$', current_name):
@@ -189,7 +184,6 @@ class StreamDiffusionExt:
         osc_out.sendOSC('/td_buffer_name', [new_name])
 
     def Seed(self):
-        print("seed")
         """
         Sends the seed settings to the OSC Out DAT as a list of lists, combining weights for identical seeds before normalization.
         """
@@ -239,7 +233,6 @@ class StreamDiffusionExt:
             osc_out.sendOSC('/seed_list', [seed_list_str])
 
     def Sdmode(self,sdmode = None):
-        print("sdmode")
         if self.ownerComp.par.Streamactive:
             osc_out = op('oscout1')
             if sdmode is None:
@@ -248,7 +241,6 @@ class StreamDiffusionExt:
                     osc_out.sendOSC('/sdmode', [sdmode])
 
     def Startstream(self):
-        print("start stream")
         """
         Starts the StreamDiffusion stream by executing a batch file.
         The batch file activates a Python virtual environment and starts the main script.
@@ -291,14 +283,14 @@ class StreamDiffusionExt:
         use_powershell = self.ownerComp.par.Powershell.eval()
         if use_powershell:
             batch_file_content = f"""
-                @echo off
-                cd /d %~dp0
-                if exist venv (
-                    PowerShell -Command "& {{& 'venv\\Scripts\\Activate.ps1'; & 'venv\\Scripts\\python.exe' 'streamdiffusionTD\\main_sdtd.py'}}"
-                ) else (
-                    PowerShell -Command "& {{& '.venv\\Scripts\\Activate.ps1'; & '.venv\\Scripts\\python.exe' 'streamdiffusionTD\\main_sdtd.py'}}"
-                )
-                {debug_cmd}
+@echo off
+cd /d %~dp0
+if exist venv (
+    PowerShell -Command "& {{& 'venv\\Scripts\\Activate.ps1'; & 'venv\\Scripts\\python.exe' 'streamdiffusionTD\\main_sdtd.py'}}"
+) else (
+    PowerShell -Command "& {{& '.venv\\Scripts\\Activate.ps1'; & '.venv\\Scripts\\python.exe' 'streamdiffusionTD\\main_sdtd.py'}}"
+)
+    {debug_cmd}
             """
         else:
             batch_file_content = f"""
@@ -339,90 +331,8 @@ class StreamDiffusionExt:
             subprocess.Popen(['open', '-a', 'Terminal', bat_file_path], cwd=self.ownerComp.par.Basefolder.eval())
             self.logger.log(f'Started streaming using Terminal.', level='INFO')
 
-        
-#     def Startstream(self, input_type=None, sender_name=None):
-#         """
-#         Starts the StreamDiffusion stream by executing a batch file with specified input type and sender name.
-#         The batch file activates a Python virtual environment and starts the main script with the given parameters.
-
-#         Parameters:
-#         input_type (str, optional): The type of input to use (ndi or spout). Defaults to self.ownerComp.par.Streamtype.
-#         sender_name (str, optional): The sender name, used if input_type is 'ndi'. Defaults to self.ownerComp.par.Streamoutname.
-#         """
-#         self.update_stream_config_dat()
-#         self.copy_ndi_code()
-
-#         # Use default values from component parameters if not provided
-#         if input_type is None:
-#             input_type = self.ownerComp.par.Streamtype.eval()
-#         if sender_name is None:
-#             sender_name = self.ownerComp.par.Streamoutname.eval()
-
-#         base_folder = self.ownerComp.par.Basefolder.eval()
-#         venv_path = os.path.join(base_folder, 'venv')
-#         dot_venv_path = os.path.join(base_folder, '.venv')
-
-#         # Check if 'venv' or '.venv' directory exists and construct the activate script path
-#         if os.path.exists(venv_path):
-#             activate_script_path = os.path.join(venv_path, 'Scripts', 'activate.bat')
-#         elif os.path.exists(dot_venv_path):
-#             activate_script_path = os.path.join(dot_venv_path, 'Scripts', 'activate.bat')
-#         else:
-#             self.logger.log("Error: Basefolder parameter must be set to '/StreamDiffusion'. 'path/to/StreamDiffusion/venv' not found.", level="ERROR")
-#             return
-
-#         if not self.ownerComp.par.Visiblewindow:
-
-#             python_script_path = 'streamdiffusionTD\\main_sdtd.py'
-#             sender_arg = f' --sender "{sender_name}"' if sender_name else ""
-#             generation_command = f'{python_script_path} --input {input_type}{sender_arg}'
-
-#             full_command = f'cmd.exe /c "{activate_script_path} && python {generation_command}"'
-#             try:
-#                 subprocess.Popen(full_command, cwd=base_folder, shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
-#                 self.logger.log(f'Started with {input_type} input silently.', level='INFO')
-#             except Exception as e:
-#                 self.logger.log(f'Error Startstream: Failed to start streaming process without command window. Error: {e}', level='ERROR')
-#             return
-                
-#         bat_file_path = os.path.join(self.ownerComp.par.Basefolder.eval(), 'Start_StreamDiffusion.bat')
-#         debug_cmd = 'pause' if self.ownerComp.par.Debugcmd.eval() else ''
-#         use_powershell = self.ownerComp.par.Powershell.eval()
-#         if use_powershell:
-#             sender_arg = f" --sender '{sender_name}'" if sender_name else ""
-#             batch_file_content = f"""
-# @echo off
-# cd /d %~dp0
-# if exist venv (
-#     PowerShell -Command "& {{& 'venv\\Scripts\\Activate.ps1'; & 'venv\\Scripts\\python.exe' 'streamdiffusionTD\\main_sdtd.py' --input {input_type}{sender_arg}}}"
-# ) else (
-#     PowerShell -Command "& {{& '.venv\\Scripts\\Activate.ps1'; & '.venv\\Scripts\\python.exe' 'streamdiffusionTD\\main_sdtd.py' --input {input_type}{sender_arg}}}"
-# )
-# {debug_cmd}
-#     """
-#         else:
-#             sender_arg = f' --sender "{sender_name}"' if sender_name else ""
-#             batch_file_content = f"""
-# @echo off
-# cd /d %~dp0
-# if exist venv (
-#     call venv\\Scripts\\activate.bat
-#     venv\\Scripts\\python.exe streamdiffusionTD\\main_sdtd.py --input {input_type}{sender_arg}
-# ) else (
-#     call .venv\\Scripts\\activate.bat
-#     .venv\\Scripts\\python.exe streamdiffusionTD\\main_sdtd.py --input {input_type}{sender_arg}
-# )
-# {debug_cmd}
-#     """
-#         with open(bat_file_path, 'w') as bat_file:
-#             bat_file.write(batch_file_content)
-#         # Execute bat file in a new command window
-#         # subprocess.Popen('start /min cmd.exe /C call ' + bat_file_path, cwd=self.ownerComp.par.Basefolder.eval(), shell=True)
-#         subprocess.Popen(['cmd.exe', '/C', bat_file_path], cwd=self.ownerComp.par.Basefolder.eval())
-#         self.logger.log(f'Started with {input_type} input using {("PowerShell" if use_powershell else "CMD")}.', level='INFO')
-
+      
     def Stopstream(self):
-        print("stop stream")
         """
         Sends a /stop command to the OSC server.
         """
@@ -441,7 +351,6 @@ class StreamDiffusionExt:
     #         op('ndiin').bypass = True
 
     def Streamactive(self):
-        print("stream active")
         current_timestamp = str(datetime.datetime.now())
         callback_data = {
             'timestamp': current_timestamp,
@@ -465,7 +374,6 @@ class StreamDiffusionExt:
 
 
     def Updatestreamname(self):
-        print("update stream name")
         try:
             source_name = op('stream_osc_data')[1, 'output-name'].val.lower()
             # print(source_name)
@@ -486,7 +394,6 @@ class StreamDiffusionExt:
             pass
 
     def Clonestreamdiffusion(self):
-        print("clone stream diffusion")
         repo_url = 'https://github.com/cumulo-autumn/StreamDiffusion.git'
         base_folder_param = self.ownerComp.par.Basefolder  # Adhering to PND
         chosen_folder = base_folder_param.eval() if base_folder_param and base_folder_param.eval() else None
@@ -531,7 +438,6 @@ class StreamDiffusionExt:
             self.logger.log('Download failed.', level='ERROR')
 
     def clone_git_to_folder(self, repo_url, chosen_folder=None, folder_parameter=None):
-        print("clone git to folder")
         # Check if Git is installed
         if not self.is_git_installed():
             ui.messageBox('Git Not Found', 'Git is not installed on this system. Please install Git.')
@@ -586,7 +492,6 @@ class StreamDiffusionExt:
         return True
     
     def is_git_installed(self):
-        print("is git installed")
         try:
             subprocess.check_output(["git", "--version"])
             return True
@@ -594,7 +499,6 @@ class StreamDiffusionExt:
             return False
     
     def is_connected(self):
-        print("is connected")
         try:
             socket.create_connection(("www.google.com", 80))
             return True
@@ -603,7 +507,6 @@ class StreamDiffusionExt:
 
 
     def is_git_lfs_installed(self):
-        print("is git lfs installed")
         try:
             subprocess.check_output(["git", "lfs", "version"], creationflags=subprocess.CREATE_NO_WINDOW)
             return True
@@ -611,7 +514,6 @@ class StreamDiffusionExt:
             return False
 
     def install_git_lfs(self):
-        print("install git lfs")
         try:
             subprocess.check_call(["git", "lfs", "install"])
             self.logger.log("Git LFS installed successfully.", level="INFO")
@@ -621,7 +523,6 @@ class StreamDiffusionExt:
 
 
     def Clonelocalmodels(self):
-        print("clone local models")
         """
         Clones the specified repositories from Hugging Face into the local models directory.
         """
@@ -645,7 +546,6 @@ class StreamDiffusionExt:
             self.update_local_model_par(was_cloned, target_folder, param_name)
 
     def clone_repo(self, repo_url, target_folder):
-        print("clone repo")
         """
         Clones a git repository to a specified target folder.
         Returns True if cloning was successful, False otherwise.
@@ -674,7 +574,6 @@ class StreamDiffusionExt:
 
 
     def update_local_model_par(self, was_cloned, target_folder, parameter_name):
-        print("update local model par")
         """
         Updates the component parameters if the model is downloaded successfully.
         """
@@ -686,7 +585,6 @@ class StreamDiffusionExt:
 
 
     def Dlhfmodel(self):
-        print("dlhfmodel")  
         self.Gethfmodelinfo(show_in_viewer=False)
         model_id = self.ownerComp.par.Dlhfmodelid.eval()
         model_type = self.ownerComp.par.Dlhfmodeltype.eval()  # This is a menu parameter
@@ -786,7 +684,6 @@ class StreamDiffusionExt:
             self.sync_model_table()
 
     def Gethfmodelinfo(self, show_in_viewer=True):
-        print("get hf model info")
         model_id = self.ownerComp.par.Dlhfmodelid.eval()
         base_folder = self.ownerComp.par.Basefolder.eval()
 
@@ -851,7 +748,6 @@ print(json.dumps(model_details))
             return
 
     def create_folder_if_not_exists(self, folder_path):
-        print("create folder if not exists")
         if not os.path.exists(folder_path):
             try:
                 os.makedirs(folder_path)
@@ -860,31 +756,26 @@ print(json.dumps(model_details))
                 self.logger.log(f"Error creating folder: {folder_path}. Error: {e}", level="ERROR")
 
     def Uiviewlora(self):
-        print("ui view lora")
         lora_folder = os.path.join(self.ownerComp.par.Basefolder.eval(), 'models', 'LoRA')
         self.create_folder_if_not_exists(lora_folder)
         ui.viewFile(lora_folder, showInFolder=False)
 
     def Uiviewmodel(self):
-        print("ui view model")
         model_folder = os.path.join(self.ownerComp.par.Basefolder.eval(), 'models', 'Model')
         self.create_folder_if_not_exists(model_folder)
         ui.viewFile(model_folder, showInFolder=False)
 
     def Uiviewlcm(self):
-        print("ui view lcm")
         lcm_folder = os.path.join(self.ownerComp.par.Basefolder.eval(), 'models', 'LCM')
         self.create_folder_if_not_exists(lcm_folder)
         ui.viewFile(lcm_folder, showInFolder=False)
 
     def Uiviewvae(self):
-        print("ui view vae")
         vae_folder = os.path.join(self.ownerComp.par.Basefolder.eval(), 'models', 'VAE')
         self.create_folder_if_not_exists(vae_folder)
         ui.viewFile(vae_folder, showInFolder=False)
 
     def find_python310_executable(self):
-        print("find python310 executable")
         possible_paths = [
             # Common installation paths on Windows
             f"C:/Users/{os.getlogin()}/AppData/Local/Programs/Python/Python310/python.exe",
@@ -906,7 +797,10 @@ print(json.dumps(model_details))
         # Adding Python executables from the system PATH
         path_env = os.environ.get('PATH', '')
         for path in path_env.split(os.pathsep):
-            python_exe_path = os.path.join(path, 'python3')
+            if platform.system() == 'Windows':
+                python_exe_path = os.path.join(path, 'python.exe')
+            else if platform.system() == 'Darwin':
+                python_exe_path = os.path.join(path, 'python3')
             if os.path.isfile(python_exe_path):
                 possible_paths.append(python_exe_path)
 
@@ -915,7 +809,6 @@ print(json.dumps(model_details))
             if os.path.exists(path):
                 try:
                     output = subprocess.check_output([path, '--version'], stderr=subprocess.STDOUT, universal_newlines=True)
-                    print(output)
                     if "Python 3.1" in output:
                         return path  # Return the path if it's the correct version
                 except Exception as e:
@@ -1082,13 +975,7 @@ print(json.dumps(model_details))
             print("running sh file")
             os.system(f"chmod +x {bat_file_path}")
             subprocess.Popen(['open', '-a', 'Terminal', bat_file_path], cwd=base_folder)
-            self.logger.log(f'Started streaming using Terminal.', level='INFO')
-            
-            #os.chmod(bat_file_path, 0o755)
-            #print(bat_file_path + base_folder)
-            #result = subprocess.run(['sh', bat_file_path], cwd=base_folder, stdout=subprocess.PIPE)
-            #print(result.stdout.decode('utf-8'))
-
+           
             
         print("StreamDiffusion installation initiated with detected Python 3.10 and CUDA version.")
 
@@ -1107,9 +994,7 @@ print(json.dumps(model_details))
     def Installtensorrt(self):
         self.update_stream_config_dat()
         self.copy_ndi_code()
-        
-        if platform.system() == 'Windows':
-            self.install_tensorrt()
+        self.install_tensorrt()
 
     def install_tensorrt(self):
         """
@@ -1152,7 +1037,6 @@ pause
 
 
     def copy_ndi_code(self):
-        print("copy ndi code")
         """
         Copies the contents of Text DATs from the 'streamdiffusionTD' base component into corresponding files in the 'streamdiffusionTD' folder in the Basefolder.
         """
@@ -1185,11 +1069,9 @@ pause
                 self.logger.log(f'{dat_name} DAT not found in streamdiffusionTD', level='ERROR')
 
     def Basefolder(self):
-        print("base folder")
         self.sync_model_table()
 
     def update_stream_config_dat(self):
-        print("update stream config dat")
         stream_config_dat = self.ownerComp.op('streamdiffusionTD/stream_config')
         try:
             config = json.loads(stream_config_dat.text)
@@ -1216,13 +1098,27 @@ pause
                     t_index_list.append(step_value)     # Append the step value to the list
                 config[json_key] = t_index_list
 
+
+
             else:
                 param_value = getattr(self.ownerComp.par, param_name).eval()
                 config[json_key] = param_value
 
+            #round widht and height to 8 multiplier    
+            # Correct the key names in the print statements
+            if param_name == "Width":
+                config[json_key] = round(param_value / 8) * 8
+                # print(f"Width: {config['width']}")  # Use 'width' instead of 'Width'
+                self.ownerComp.par.Width = config['width']
+            if param_name == "Height":
+                config[json_key] = round(param_value / 8) * 8
+                # print(f"Height: {config['height']}")  # Use 'height' instead of 'Height'
+                self.ownerComp.par.Height = config['height']
+
         for key in keys_to_remove:
             if key in config:
                 del config[key]
+        #print width and height
             # print(f"Deleted {key} from config")
         if self.ownerComp.par.Uselora:
             lora_dict = {}
@@ -1241,7 +1137,6 @@ pause
 
 
     def Savemodel(self, model=None):
-        print("save model")
         models_file_path = os.path.join(self.ownerComp.par.Basefolder.eval(), 'StreamDiffusionTD', 'working_models.json')
         os.makedirs(os.path.dirname(models_file_path), exist_ok=True)
         models_list = self.load_models_list(models_file_path)
@@ -1274,7 +1169,6 @@ pause
 
 
     def sync_model_table(self):
-        print("sync model table")
         """
         Synchronizes the model IDs from the working_models.json file with the 'model_table' DAT.
         Adds a second column 'Label' to the table, which contains only the file name if the model path is a full file path,
@@ -1306,7 +1200,6 @@ pause
             self.logger.log('Model table synchronized with working models list.', level='INFO')
 
     def load_models_list(self, models_file_path):
-        print("load models list")
         """
         Helper function that loads the list of models from the specified JSON file.
 
@@ -1332,19 +1225,16 @@ pause
         return models_list
     
     def Mymodels(self):
-        print("my models")
         modelpreset = self.ownerComp.par.Mymodels.eval()
         if modelpreset != 'select_working_model_from_dropdown':
             self.ownerComp.par.Modelid = modelpreset
         # debug(modelpreset)
         
     def Updateloramodelpath(self, block, path):
-        print("update lora model path")
         setattr(self.ownerComp.par, f'Loradictblock{block}lorapath', path)
 
 
     def Openvenv(self):
-        print("open venv")
         base_folder = self.ownerComp.par.Basefolder.eval()
         
         # Check if 'venv' or '.venv' directory exists and construct the activate script path
@@ -1380,7 +1270,6 @@ pause
 
 
     def Createpars(self):
-        print("create pars")
         # Configuration as per stream_config.json
         config = {
             "Modelid": {"type": "str", "default": "stabilityai/sd-turbo", "help": "The name of the model to use for image generation."},
@@ -1418,7 +1307,6 @@ pause
             getattr(self.ownerComp.par, par_name).help = help_text
 
     def setup_table(self, table_name, headers=None):
-        print("setup table")
         # Check if the table exists, if not, create it
         table = self.ownerComp.op(table_name)
         if table is None:
@@ -1429,7 +1317,6 @@ pause
         return table
 
     def setup_project_info_table(self):
-        print("setup project info table")
         """
         Sets up a table with project information.
         """
@@ -1455,7 +1342,6 @@ pause
 
 
     def create_parameter(self, par_name, par_type, page='Custom', default=None, norm_min=None, norm_max=None, size=1, menu_items=None, label=None, order=None, replace=False, section=None):
-        print("create parameter")
         '''
         Creates a custom parameter on a specified page in a TouchDesigner component, supporting a wide 
         range of parameter types. This function allows for creating basic types like 'float', 'int', 
@@ -1568,7 +1454,6 @@ pause
         return new_param 
     
     def Printpardetails(self):
-        print("print par details")
         """
         This function prints the details of the parameters of the owner component.
         It prints the parameter name, label, value, default value, and the page name.
@@ -1580,7 +1465,6 @@ pause
 
 
     def setup_par_details_table(self):
-        print("setup par details table")
         """
         This function sets up a table with the details of the parameters of the owner component.
         It defines the headers for the table and populates it with the parameter details.
@@ -1613,13 +1497,11 @@ pause
 
 
     def Editcallbacksscript(self):
-        print("edit callbacks script")
         viewop = self.ownerComp.par.Callbackdat.eval()
         viewop.openViewer(unique=False, borders=True)
 
 
     def Viewinstallguide(self):
-        print("view install guide")
         viewop = op('how_to_install')
         op('how_to_install').par.Reloadsrc.pulse()
         viewop.openViewer(unique=False, borders=True)
