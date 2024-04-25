@@ -41,6 +41,7 @@ from pythonosc.osc_server import BlockingOSCUDPServer
 import array
 from itertools import repeat
 from pythonosc import udp_client
+import platform
 
 # from ndi_spout_utils import spout_capture, spout_transmit, ndi_capture, ndi_transmit, select_ndi_source
 
@@ -203,14 +204,13 @@ def image_generation_process(
     shared_data,
     t_index_list: List[int] ,
     mode:str,
-    device: Literal["cpu","cuda", "mps"],
     lcm_lora_id: Optional[str] = None,
     vae_id: Optional[str] = None,
     input_mem_name: str = "input_mem_name",
     osc_transmit_port: Optional[int] = None,
     scheduler_name: str = "EulerAncestral",
     use_karras_sigmas: bool = False,
-    
+    device: Literal["cpu","cuda", "mps"] = "cuda",
 
 ) -> None:
     """
@@ -578,9 +578,9 @@ def main():
     scheduler_name = config.get("scheduler_name", "EulerAncestral")
     use_karras_sigmas = config.get("use_karras_sigmas", False)
     input_mem_name = config["input_mem_name"]
-    device = torch.device("cuda" if torch.cuda.is_available() else "mps")
+    device = config.get("device", "cuda")
+    print (" Device is ", device)   
     print(f"\n\ninput_mem_name: {input_mem_name}\n")
-
 
     print(f"Model ID or Path: {model_id_or_path}\n")
     if lcm_lora_id is not None:
