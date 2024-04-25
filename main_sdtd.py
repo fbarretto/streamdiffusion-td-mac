@@ -5,7 +5,7 @@ import time
 import threading
 import numpy as np
 import cv2
-import NDIlib as ndi
+# import NDIlib as ndi
 import fire
 import json
 import argparse
