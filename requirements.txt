@@ -1,0 +1,14 @@
+git+https://github.com/cumulo-autumn/StreamDiffusion.git@main#egg=streamdiffusion[tensorrt] ; sys_platform == 'Windows'
+git+https://github.com/cumulo-autumn/StreamDiffusion.git@main#egg=streamdiffusion ; sys_platform == 'darwin'
+
+opencv-python
+pywin32; sys_platform == 'Windows'
+numpy
+Pillow
+fire
+mss
+ndi-python; sys_platform == 'Windows'
+matplotlib
+python-osc
+SpoutGL ; sys_platform == 'Windows'
+PyOpenGL
