@@ -578,7 +578,7 @@ def main():
     scheduler_name = config.get("scheduler_name", "EulerAncestral")
     use_karras_sigmas = config.get("use_karras_sigmas", False)
     input_mem_name = config["input_mem_name"]
-    device = config.get("device", "cuda")
+    device = "cuda" if platform.system() == "Windows" else "mps"
     print (" Device is ", device)   
     print(f"\n\ninput_mem_name: {input_mem_name}\n")
 
