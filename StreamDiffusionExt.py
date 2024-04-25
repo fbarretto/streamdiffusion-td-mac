@@ -799,7 +799,7 @@ print(json.dumps(model_details))
         for path in path_env.split(os.pathsep):
             if platform.system() == 'Windows':
                 python_exe_path = os.path.join(path, 'python.exe')
-            else if platform.system() == 'Darwin':
+            elif platform.system() == 'Darwin':
                 python_exe_path = os.path.join(path, 'python3')
             if os.path.isfile(python_exe_path):
                 possible_paths.append(python_exe_path)
