@@ -203,13 +203,14 @@ def image_generation_process(
     shared_data,
     t_index_list: List[int] ,
     mode:str,
+    device: Literal["cpu","cuda", "mps"],
     lcm_lora_id: Optional[str] = None,
     vae_id: Optional[str] = None,
     input_mem_name: str = "input_mem_name",
     osc_transmit_port: Optional[int] = None,
     scheduler_name: str = "EulerAncestral",
     use_karras_sigmas: bool = False,
-    device: Literal["cpu","cuda", "mps"] = "cuda"
+    
 
 ) -> None:
     """

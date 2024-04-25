@@ -27,5 +27,6 @@
     "output_mem_name": "sd_to_td",
     "scheduler_name": "Euler",
     "use_karras_sigmas": false,
-    "lcm_lora_id": ""
+    "lcm_lora_id": "",
+    "device": "mps"
 }
