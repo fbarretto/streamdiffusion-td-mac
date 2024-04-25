@@ -285,8 +285,8 @@ def image_generation_process(
         lcm_lora_id=lcm_lora_id,  # Add this line
         vae_id=vae_id,
         scheduler_name=scheduler_name,
-        use_karras_sigmas=use_karras_sigmas
-
+        use_karras_sigmas=use_karras_sigmas,
+        device=device
     )
 
     current_prompt = prompt
