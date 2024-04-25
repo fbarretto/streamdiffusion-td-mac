@@ -283,28 +283,29 @@ class StreamDiffusionExt:
         use_powershell = self.ownerComp.par.Powershell.eval()
         if use_powershell:
             batch_file_content = f"""
-@echo off
-cd /d %~dp0
-if exist venv (
-    PowerShell -Command "& {{& 'venv\\Scripts\\Activate.ps1'; & 'venv\\Scripts\\python.exe' 'streamdiffusionTD\\main_sdtd.py'}}"
-) else (
-    PowerShell -Command "& {{& '.venv\\Scripts\\Activate.ps1'; & '.venv\\Scripts\\python.exe' 'streamdiffusionTD\\main_sdtd.py'}}"
-)
-    {debug_cmd}
+            @echo off
+            cd /d %~dp0
+            if exist venv (
+                PowerShell -Command "& {{& 'venv\\Scripts\\Activate.ps1'; & 'venv\\Scripts\\python.exe' 'streamdiffusionTD\\main_sdtd.py'}}"
+            ) else (
+                PowerShell -Command "& {{& '.venv\\Scripts\\Activate.ps1'; & '.venv\\Scripts\\python.exe' 'streamdiffusionTD\\main_sdtd.py'}}"
+            )
+            {debug_cmd}
             """
         else:
             batch_file_content = f"""
-                #!/bin/sh
-                cd "$(dirname "$0")"
-                if [ -d "venv" ]; then
-                    source venv/bin/activate
-                    python streamdiffusionTD/main_sdtd.py
-                else
-                    source .venv/bin/activate
-                    python streamdiffusionTD/main_sdtd.py
-                fi
-                {debug_cmd}
-                """
+            @echo off
+            cd /d %~dp0
+            if exist venv (
+                call venv\\Scripts\\activate.bat
+                venv\\Scripts\\python.exe streamdiffusionTD\\main_sdtd.py
+            ) else (
+                call .venv\\Scripts\\activate.bat
+                .venv\\Scripts\\python.exe streamdiffusionTD\\main_sdtd.py
+            )
+            {debug_cmd}
+            """
+
         if platform.system() == 'Darwin':
             batch_file_content = f"""
                 #!/bin/sh
