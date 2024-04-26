@@ -283,14 +283,14 @@ class StreamDiffusionExt:
         use_powershell = self.ownerComp.par.Powershell.eval()
         if use_powershell:
             batch_file_content = f"""
-            @echo off
-            cd /d %~dp0
-            if exist venv (
-                PowerShell -Command "& {{& 'venv\\Scripts\\Activate.ps1'; & 'venv\\Scripts\\python.exe' 'streamdiffusionTD\\main_sdtd.py'}}"
-            ) else (
-                PowerShell -Command "& {{& '.venv\\Scripts\\Activate.ps1'; & '.venv\\Scripts\\python.exe' 'streamdiffusionTD\\main_sdtd.py'}}"
-            )
-            {debug_cmd}
+@echo off
+cd /d %~dp0
+if exist venv (
+    PowerShell -Command "& {{& 'venv\\Scripts\\Activate.ps1'; & 'venv\\Scripts\\python.exe' 'streamdiffusionTD\\main_sdtd.py'}}"
+) else (
+    PowerShell -Command "& {{& '.venv\\Scripts\\Activate.ps1'; & '.venv\\Scripts\\python.exe' 'streamdiffusionTD\\main_sdtd.py'}}"
+)
+    {debug_cmd}
             """
         else:
             batch_file_content = f"""
@@ -949,7 +949,7 @@ print(json.dumps(model_details))
             
             pip install pip install --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/cpu --trusted-host download.pytorch.org
             pip --trusted-host pypi.org --trusted-host files.pythonhosted.org .
-            pip install -r --trusted-host pypi.org --trusted-host files.pythonhosted.org streamdiffusionTD/requirements.txt
+            pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org  -r streamdiffusionTD/requirements.txt
 
             pip uninstall --yes numpy
             pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org numpy
