@@ -948,7 +948,7 @@ print(json.dumps(model_details))
             echo "Installing dependencies with pip from the activated virtual environment..."
             
             pip install pip install --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/cpu --trusted-host download.pytorch.org
-            pip --trusted-host pypi.org --trusted-host files.pythonhosted.org .
+            pip --trusted-host pypi.org --trusted-host files.pythonhosted.org install .
             pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org  -r streamdiffusionTD/requirements.txt
 
             pip uninstall --yes numpy
