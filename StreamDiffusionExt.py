@@ -841,12 +841,13 @@ print(json.dumps(model_details))
                 raise Exception(f"Detected CUDA version is not supported. Output: {cuda_version_output}")
         except Exception as e:
             cuda_version = 'CUDA Not Found'
-            choice = ui.messageBox('Installation Error !', 
+            if platform.system() == 'Windows':
+                choice = ui.messageBox('Installation Error !', 
                                 f'CUDA detection failed or unsupported CUDA version detected. The script requires CUDA 11.8 or 12.1 for installation. Error: {e}\nDo you want to continue anyway?', 
                                 buttons=['Continue Anyway', 'Cancel'])
-            if choice != 0:  # Continue Anyway
-                cuda_version = 'CUDA Not Found'
-                return False   
+                if choice != 0:  # Continue Anyway
+                    cuda_version = 'CUDA Not Found'
+                    return False   
         if platform.system() == 'Windows':
             bat_file_path = os.path.join(self.ownerComp.par.Basefolder.eval(), 'Install_StreamDiffusion.bat')
         else:
