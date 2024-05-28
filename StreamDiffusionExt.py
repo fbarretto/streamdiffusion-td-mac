@@ -7,7 +7,7 @@ can be accessed externally, e.g. op('yourComp').PromotedFunction().
 
 Help: search "Extensions" in wiki
 """
-import os
+import os  
 import subprocess
 import socket
 import json
@@ -48,6 +48,9 @@ param_json_map = {
     "Customlcm" : "lcm_lora_id",
     "Customvae" : "vae_id",
     "Streamoutname" : "input_mem_name",
+    "Cnmodel" : "controlnet_model",
+    "Usecontrolnet" : "use_controlnet",
+    "Cnweight" : "controlnet_weight",
     # "Outputmemname" : "output_mem_name",
     # "Scheduler": "scheduler_name",
     # "Usekarrassigmas": "use_karras_sigmas"
@@ -62,7 +65,12 @@ model_preset_params = [
     "Usecustomlcm",
     "Usecustomvae",
     "Acceleration",
-    "Tindexblock"
+    "Tindexblock",
+    "Usecontrolnet",
+    "Cnweight",
+    "Cnmodel",
+    "Cnfolder",
+    "Cnmodelselect",
 ]
 
 class StreamDiffusionExt: 
@@ -74,6 +82,7 @@ class StreamDiffusionExt:
         Initializes the StarterExt class. Sets the owner component and calls the functions to create basic parameters and setup tables.
         """
         self.ownerComp = ownerComp
+        self.message_box_open = False
 
         self.setup_project_info_table()
         self.setup_par_details_table()
@@ -91,7 +100,7 @@ class StreamDiffusionExt:
         if self.ownerComp.par.Streamactive:
             osc_out = op('oscout1')
 
-            # Sending the delta value
+            # Sending the delta value 
             delta_address = '/delta'
             delta_value = self.ownerComp.par.Delta.eval()
             osc_out.sendOSC(delta_address, [delta_value])
@@ -176,7 +185,7 @@ class StreamDiffusionExt:
 
 
 
-    def Updatestreamout(self):
+    def Streamoutname(self):
         current_name = self.ownerComp.par.Streamoutname.eval()
         # Check if the current name ends with a number
         if re.search(r'\d+$', current_name):
@@ -250,6 +259,24 @@ class StreamDiffusionExt:
                 if sdmode in ['txt2img', 'img2img']:
                     osc_out.sendOSC('/sdmode', [sdmode])
 
+    def Cnweight(self):
+        if self.ownerComp.par.Streamactive:
+            osc_out = op('oscout1')
+            controlnet_weight_value = self.ownerComp.par.Cnweight.eval()
+            osc_out.sendOSC('/controlnet_weight', [controlnet_weight_value])
+
+    def Usecontrolnet(self):
+        if self.ownerComp.par.Streamactive:
+            osc_out = op('oscout1')
+            use_controlnet_value = self.ownerComp.par.Usecontrolnet.eval()
+            osc_out.sendOSC('/use_controlnet', [use_controlnet_value])
+
+    def Streamoutname(self):
+        if self.ownerComp.par.Streamactive:
+            osc_out = op('oscout1')
+            stream_out_name_value = self.ownerComp.par.Streamoutname.eval()
+            osc_out.sendOSC('/stream_out_name', [stream_out_name_value])
+
     def Startstream(self):
         """
         Starts the StreamDiffusion stream by executing a batch file.
@@ -319,12 +346,16 @@ if exist venv (
         if platform.system() == 'Darwin':
             batch_file_content = f"""
                 #!/bin/sh
+                unset PYTHONPATH
+                unset LD_LIBRARY_PATH
                 cd "$(dirname "$0")"
                 if [ -d "venv" ]; then
                     source venv/bin/activate
+                    python --version
                     python streamdiffusionTD/main_sdtd.py
                 else
                     source .venv/bin/activate
+                    python --version
                     python streamdiffusionTD/main_sdtd.py
                 fi
                 {debug_cmd}
@@ -372,6 +403,8 @@ if exist venv (
             self.Updatestreamname()
             self.Updatesettings()
             self.Promptblock()
+            self.Cnweight()
+            run("me.Usecontrolnet()", fromOP = self.ownerComp, delayFrames = 10)
             # Call onStreamStart callback
             if self.ownerComp.par.Onstreamstart:
                 self.ownerComp.DoCallback("onStreamStart", callback_data)
@@ -405,6 +438,10 @@ if exist venv (
             pass
 
     def Clonestreamdiffusion(self):
+        if self.message_box_open:
+            return
+        self.message_box_open = True
+
         repo_url = 'https://github.com/cumulo-autumn/StreamDiffusion.git'
         base_folder_param = self.ownerComp.par.Basefolder  # Adhering to PND
         chosen_folder = base_folder_param.eval() if base_folder_param and base_folder_param.eval() else None
@@ -425,24 +462,30 @@ if exist venv (
                     if process.returncode != 0:
                         ui.messageBox('Error', f'Error updating repository:\n{stderr}')
                         self.logger.log(f'rtLCM: Error updating repository:\n{stderr}', level='ERROR')
+                        self.message_box_open = False
                         return False
                     else:
                         self.logger.log('Update successful.', level='INFO')
+                        self.message_box_open = False
                         return True
                 except Exception as e:
                     ui.messageBox('Error', f'Failed to execute the command: {e}')
                     self.logger.log(f'rtLCM: Failed to execute the command: {e}', level='ERROR')
+                    self.message_box_open = False
                     return False
             elif choice == 1:  # Pick New Location for Fresh Download
                 chosen_folder = ui.chooseFolder(title='Select a folder to clone the repository')
                 if chosen_folder is None:
+                    self.message_box_open = False
                     return False
             else:  # Cancel or 'x' button
+                self.message_box_open = False
                 return False
 
         # If it's not a git repository, or if the user chose to download to a new location, proceed with cloning
         success = self.clone_git_to_folder(repo_url, chosen_folder=chosen_folder, folder_parameter='Basefolder')
         
+        self.message_box_open = False
         if success:
             self.logger.log('Download successful.', level='INFO')
         else:
@@ -802,7 +845,10 @@ print(json.dumps(model_details))
             "/usr/bin/python",
             "/usr/bin/python3",
             "/opt/homebrew/bin/python3",
-            "/opt/homebrew/bin/python"
+            "/opt/homebrew/bin/python",
+            "/Library/Frameworks/Python.framework/Versions/3.10",
+            "/Library/Frameworks/Python.framework/Versions/3.11",
+            "/Library/Frameworks/Python.framework/Versions/3.12",
         ])
 
         # Adding Python executables from the system PATH
@@ -924,13 +970,17 @@ print(json.dumps(model_details))
 
         batch_file_content_mac = f"""
             #!/bin/bash
+            unset PYTHONPATH
+            unset LD_LIBRARY_PATH
             echo "Current directory: $PWD"
             cd "{base_folder}"
             echo "Changed directory to: $PWD"
+            echo "PYTHONPATH: $PYTHONPATH"
+            echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
             export PIP_DISABLE_PIP_VERSION_CHECK=1
             if [ ! -d "venv" ]; then
-            echo "Creating Python venv at: {base_folder}/venv"
-            python3 -m venv venv
+            echo "Creating Python venv at: {base_folder}/venv using {python_exe}"
+            {python_exe} -m venv venv
             else
             echo "Virtual environment already exists at: {base_folder}/venv"
             fi
@@ -987,7 +1037,6 @@ print(json.dumps(model_details))
             print("running sh file")
             os.system(f"chmod +x {bat_file_path}")
             subprocess.Popen(['open', '-a', 'Terminal', bat_file_path], cwd=base_folder)
-           
             
         print("StreamDiffusion installation initiated with detected Python 3.10 and CUDA version.")
 
@@ -1127,6 +1176,7 @@ pause
 
     def Basefolder(self):
         self.sync_model_table()
+        self.update_preset_dropdown()
 
     def update_stream_config_dat(self):
         stream_config_dat = self.ownerComp.op('streamdiffusionTD/stream_config')
@@ -1171,10 +1221,12 @@ pause
                 # print(f"Height: {config['height']}")  # Use 'height' instead of 'Height'
                 if self.ownerComp.par.Height.mode == ParMode.CONSTANT:
                     self.ownerComp.par.Height = config['height']
-
-            #correct Model path
-            if param_name == "Modelid":
-                print(config['model_id_or_path'])
+            if param_name == "Cnmodel":
+                if self.ownerComp.par.Cnmodel == 'select_single_file':
+                    config[json_key] = self.ownerComp.par.Cnmodelselect.eval()
+            # #correct Model path
+            # if param_name == "Modelid":
+            #     print(config['model_id_or_path'])
 
         for key in keys_to_remove:
             if key in config:
@@ -1276,9 +1328,11 @@ pause
             simple_name += f"_{customlcm}"
         if customvae:
             simple_name += f"_{customvae}"
+        if self.ownerComp.par.Usecontrolnet.eval():
+            simple_name += f"_{self.normalize_model_id(self.ownerComp.par.Cnmodel.eval())}"
         #shorten to 40 chars
-        if len(simple_name) > 40:
-            simple_name = simple_name[:40]
+        if len(simple_name) > 65:
+            simple_name = simple_name[:65]
         return simple_name
 
     def save_preset(self, preset_name=None, preset_file_path=None):
@@ -1367,6 +1421,10 @@ pause
                     except:
                         continue
                     setattr(self.ownerComp.par, param_name, preset.get(param_name, getattr(self.ownerComp.par, param_name).default))
+                elif param_name.startswith("Cn"):
+                    #if Cnfolder not in preset, skip setting    
+                    if param_name in preset:
+                        setattr(self.ownerComp.par, param_name, preset.get(param_name, getattr(self.ownerComp.par, param_name).default))
                 else:
                     setattr(self.ownerComp.par, param_name, preset.get(param_name, getattr(self.ownerComp.par, param_name).default))
             self.logger.log(f'Preset loaded: {preset_name}', level='INFO')
@@ -1396,8 +1454,12 @@ pause
             preset_file_path = os.path.join(self.ownerComp.par.Basefolder.eval(), 'StreamDiffusionTD', 'model_presets.json')
             presets_list = self.load_presets_list(preset_file_path)
             preset_names = [preset['preset_name'] for preset in presets_list]
-            self.ownerComp.par.Presetname.menuNames = preset_names
-            self.ownerComp.par.Presetname.menuLabels = preset_names
+            if preset_names:
+                self.ownerComp.par.Presetname.menuNames = preset_names
+                self.ownerComp.par.Presetname.menuLabels = preset_names
+            else:
+                self.ownerComp.par.Presetname.menuNames = ['Saved Model Configs Will Show Here']
+                self.ownerComp.par.Presetname.menuLabels = ['Saved Model Configs Will Show Here']
 
 
 
@@ -1770,4 +1832,3 @@ pause
         viewop = op('how_to_install')
         op('how_to_install').par.Reloadsrc.pulse()
         viewop.openViewer(unique=False, borders=True)
-
