@@ -1,4 +1,4 @@
-#MAIN.py td
+#main_sdtd
 import os
 import sys
 import time
@@ -83,7 +83,7 @@ def send_osc_message(address, value, osc_out_port):
     client = OSCClientFactory.get_client(osc_out_port)
     client.send_message(address, value)
 
-def calculate_fps_and_send_osc(start_time, transmit_count, osc_out_port, sender_name, frame_created):
+def calculate_fps_and_send_osc(start_time, transmit_count, osc_out_port, sender_name, frame_created, use_controlnet):
     if frame_created:
         transmit_count += 1
     elapsed_time = time.time() - start_time
@@ -91,7 +91,8 @@ def calculate_fps_and_send_osc(start_time, transmit_count, osc_out_port, sender_
         if frame_created:
             fps = round(transmit_count / elapsed_time, 3)
             send_osc_message('/stream-info/fps', fps, osc_out_port)
-            print(f"Streaming... Active | Sender: {sender_name} | FPS: {fps}\r", end='', flush=True)
+            controlnet_status = "ControlNet is Active | " if use_controlnet else ""
+            print(f"Streaming... Active | {controlnet_status}Sender: {sender_name} | FPS: {fps}\r", end='', flush=True)
         send_osc_message('/stream-info/output-name', sender_name, osc_out_port)
         start_time = time.time()
         if frame_created:
@@ -147,6 +148,13 @@ def osc_server(shared_data, ip='127.0.0.1', port=8247):
     def set_td_buffer_name_handler(address, *args):
         shared_data["input_mem_name"] = args[0]
 
+    def set_controlnet_weight_handler(address, *args):
+        shared_data["controlnet_conditioning_scale"] = args[0]
+
+    def set_use_controlnet_handler(address, *args):
+        shared_data["use_controlnet"] = args[0]
+
+
     dispatcher = Dispatcher()
 
     dispatcher.map("/negative_prompt", set_negative_prompt_handler)
@@ -165,8 +173,11 @@ def osc_server(shared_data, ip='127.0.0.1', port=8247):
     dispatcher.map("/gaussian_prompt", set_gaussian_prompt_handler)
     dispatcher.map("/td_buffer_name", set_td_buffer_name_handler)
 
+    dispatcher.map("/controlnet_weight", set_controlnet_weight_handler)
+    dispatcher.map("/use_controlnet", set_use_controlnet_handler)
+
     server = BlockingOSCUDPServer((ip, port), dispatcher)
-    print(f"Starting OSC server on {ip}:{port}")
+    print(f"\033[32m====================================\nOSC ready on {ip}:{port}\n====================================\033[0m\n")
     server.serve_forever()
 
 def print_sdtd_title():
@@ -211,7 +222,9 @@ def image_generation_process(
     scheduler_name: str = "EulerAncestral",
     use_karras_sigmas: bool = False,
     device: Literal["cpu","cuda", "mps"] = "cuda",
-
+    use_controlnet: bool = False,
+    controlnet_model: Optional[str] = None,
+    controlnet_weight: float = 0.5,
 ) -> None:
     """
     Process for generating images based on a prompt using a specified model.
@@ -287,7 +300,9 @@ def image_generation_process(
         vae_id=vae_id,
         scheduler_name=scheduler_name,
         use_karras_sigmas=use_karras_sigmas,
-        device=device
+        device=device,
+        use_controlnet=use_controlnet,
+        controlnet_model=controlnet_model,
     )
 
     current_prompt = prompt
@@ -297,7 +312,7 @@ def image_generation_process(
     noise_bank = {}
     prompt_cache = {}
 
-    print('Preparing Stream...\n\n')
+    print('Preparing Stream...')
 
     stream.prepare(
         prompt=current_prompt,
@@ -306,11 +321,12 @@ def image_generation_process(
         guidance_scale=guidance_scale,
         delta=delta,
     )
-
     time.sleep(1)
+
 
     input_memory = None
     output_memory = None
+    control_memory = None
     start_time = time.time()
     prompt_changed = False
     frame_count = 0
@@ -319,37 +335,60 @@ def image_generation_process(
 
     while True:
         try:
-            if mode == "img2img":
+            # Load controlnet frame if using controlnet
+            if use_controlnet:
+                control_mem_name = input_mem_name + '-cn'
 
+                if 'control_mem_name' in shared_data and shared_data['control_mem_name'] != control_mem_name:
+                    if control_memory is not None:
+                        control_memory.close()  # Close the existing shared memory
+                        control_memory = None
+                    control_mem_name = shared_data['control_mem_name']
+                    
+
+                if control_memory is None:
+                    try:
+                        control_memory = shared_memory.SharedMemory(name=control_mem_name)
+                        # print(f"Control memory '{control_mem_name}' found.")
+                    except FileNotFoundError:
+                        print(f"\Controlnet Stream '{input_mem_name}' not found. Try changing the Stream Out Name (to SD) parameter in Stream Settings 2 of TD operator.")
+                        continue
+
+                control_total_size_bytes = control_memory.size
+                control_buffer = np.ndarray(shape=(control_total_size_bytes,), dtype=np.uint8, buffer=control_memory.buf)
+                control_image_data_size = width * height * 3
+                control_frame_np = control_buffer[:control_image_data_size].reshape((height, width, 3))
+                control_input_tensor = to_tensor(control_frame_np)
+
+            # Handle img2img mode
+            if mode == "img2img":
+                # Load input frame
                 if 'input_mem_name' in shared_data and shared_data['input_mem_name'] != input_mem_name:
                     if input_memory is not None:
-                        input_memory.close()  # Close the existing shared memory
+                        input_memory.close()
                         input_memory = None
                     input_mem_name = shared_data['input_mem_name']
 
                 if input_memory is None:
-                    current_time = lambda: int(round(time.time() * 1000))
                     try:
                         input_memory = shared_memory.SharedMemory(name=input_mem_name)
-                        print(f"{current_time()} - Shared memory '{input_mem_name}' found.")
+                        print(f"Input Stream '{input_mem_name}' found.\n")
                     except FileNotFoundError:
-                        print(f"{current_time()} - Shared memory '{input_mem_name}' not found")
-                        time.sleep(1)
+                        print(f"\nInput Stream '{input_mem_name}' not found. Try changing the Stream Out Name (to SD) parameter in Stream Settings 2 of TD operator.")
                         continue
 
                 total_size_bytes = input_memory.size
                 buffer = np.ndarray(shape=(total_size_bytes,), dtype=np.uint8, buffer=input_memory.buf)
                 image_data_size = width * height * 3
-
-                try:
-                    frame_np = buffer[:image_data_size].reshape((height, width, 3))
-                except Exception as e:
-                    print(f"Error in extracting image data: {str(e)}")
-                    continue
-
-                extra_data = np.frombuffer(buffer[image_data_size:], dtype=np.float32)
+                frame_np = buffer[:image_data_size].reshape((height, width, 3))
                 input_tensor = to_tensor(frame_np)
-                processed_tensor = stream.stream(input_tensor)
+
+                # Process the image tensor with controlnet tensor if applicable
+                if use_controlnet:
+                    processed_tensor = stream.stream(input_tensor, control_input_tensor)
+                else:
+                    processed_tensor = stream.stream(input_tensor)
+
                 processed_np = postprocess_image(processed_tensor, output_type="np")
                 processed_np = (processed_np * 255).astype(np.uint8)
                 if output_memory is None:
@@ -358,27 +397,26 @@ def image_generation_process(
                 output_array[:] = processed_np[:]
 
                 send_osc_message('/framecount', frame_count, osc_transmit_port)
-                start_time, transmit_count = calculate_fps_and_send_osc(start_time, transmit_count, osc_transmit_port, output_mem_name, True)
+                start_time, transmit_count = calculate_fps_and_send_osc(start_time, transmit_count, osc_transmit_port, output_mem_name, True, use_controlnet)
 
+            # Handle txt2img mode
             elif mode == "txt2img":
-                try:
-                    processed_np = custom_txt2img_using_prepared_noise(stream_diffusion=stream.stream, expected_batch_size=1, output_type='np')
-                    if processed_np.max() <= 1.0:
-                        processed_np = (processed_np * 255).astype(np.uint8)
+                processed_np = custom_txt2img_using_prepared_noise(stream_diffusion=stream.stream, expected_batch_size=1, output_type='np', control_image=control_input_tensor if use_controlnet else None)
+                if processed_np.max() <= 1.0:
+                    processed_np = (processed_np * 255).astype(np.uint8)
 
-                    if output_memory is None:
-                        output_memory = shared_memory.SharedMemory(name=output_mem_name, create=True, size=processed_np.nbytes)
+                if output_memory is None:
+                    output_memory = shared_memory.SharedMemory(name=output_mem_name, create=True, size=processed_np.nbytes)
 
-                    output_array = np.ndarray(processed_np.shape, dtype=processed_np.dtype, buffer=output_memory.buf)
-                    output_array[:] = processed_np[:]
-                    send_osc_message('/framecount', frame_count, osc_transmit_port)
-                    start_time, transmit_count = calculate_fps_and_send_osc(start_time, transmit_count, osc_transmit_port, output_mem_name, True)
-
-                except Exception as e:
-                    print(f"Error in txt2img mode: {str(e)}")
-
+                output_array = np.ndarray(processed_np.shape, dtype=processed_np.dtype, buffer=output_memory.buf)
+                output_array[:] = processed_np[:]
+                send_osc_message('/framecount', frame_count, osc_transmit_port)
+                start_time, transmit_count = calculate_fps_and_send_osc(start_time, transmit_count, osc_transmit_port, output_mem_name, True, use_controlnet)
 
             frame_count += 1
+
+
+            # frame_count += 1
             new_sdmode = shared_data.get("sdmode", mode)
             if new_sdmode != mode:
                 mode = new_sdmode
@@ -407,6 +445,16 @@ def image_generation_process(
                     prompt_cache,
                     # gaussian_prompt
                 )
+                # print(f"{stream.stream.guidance_scale} - Current Guidance Scale.")
+                
+
+            #controlnet_weight
+            new_controlnet_conditioning_scale = shared_data.get("controlnet_conditioning_scale", stream.stream.controlnet_conditioning_scale)
+            if new_controlnet_conditioning_scale != stream.stream.controlnet_conditioning_scale:
+                update_controlnet_conditioning_scale(stream.stream, shared_data)
+            new_use_controlnet = shared_data.get("use_controlnet", stream.stream.use_controlnet)
+            if new_use_controlnet != stream.stream.use_controlnet:
+                stream.stream.use_controlnet = new_use_controlnet
             ##SEED DICT
             new_seed_list = shared_data.get("seed_list", current_seed_list)
             if new_seed_list != current_seed_list:
@@ -428,6 +476,11 @@ def image_generation_process(
         except KeyboardInterrupt:
             break
 
+def update_controlnet_conditioning_scale(stream_diffusion, shared_data):
+    new_controlnet_conditioning_scale = shared_data.get("controlnet_conditioning_scale", stream_diffusion.controlnet_conditioning_scale)
+    if new_controlnet_conditioning_scale != stream_diffusion.controlnet_conditioning_scale:
+        stream_diffusion.controlnet_conditioning_scale = new_controlnet_conditioning_scale
+        # print(f"ControlNet Conditioning Scale updated to: {new_controlnet_conditioning_scale}")
 # function to update t_list-related attributes
 def update_t_list_attributes(stream_diffusion_instance, new_t_list):
     stream_diffusion_instance.t_list = new_t_list
@@ -466,8 +519,11 @@ def update_combined_prompts_and_parameters(stream_diffusion, prompt_list, new_gu
     stream_diffusion.guidance_scale = new_guidance_scale
     stream_diffusion.delta = new_delta
     prompt_text = ''
-    if stream_diffusion.guidance_scale > 1.0 and (stream_diffusion.cfg_type in ["self", "initialize"]):
-        stream_diffusion.stock_noise *= stream_diffusion.delta
+    # if stream_diffusion.guidance_scale > 1.0 and (stream_diffusion.cfg_type in ["self", "initialize"]):
+    #     stream_diffusion.stock_noise *= stream_diffusion.delta
+
+    # if stream_diffusion.guidance_scale > 1.0 and (stream_diffusion.cfg_type in ["self", "initialize"]):
+    stream_diffusion.stock_noise *= stream_diffusion.delta
     combined_embeds = None
     current_prompts = set()
     for idx, prompt in enumerate(prompt_list):
@@ -480,7 +536,8 @@ def update_combined_prompts_and_parameters(stream_diffusion, prompt_list, new_gu
                 prompt=prompt_text,
                 device=stream_diffusion.device,
                 num_images_per_prompt=1,
-                do_classifier_free_guidance=stream_diffusion.guidance_scale > 1.0,
+                # do_classifier_free_guidance=stream_diffusion.guidance_scale > 1.0,
+                do_classifier_free_guidance=True,
                 negative_prompt=new_negative_prompt,
             )
             prompt_cache[idx] = {'embed': encoder_output[0], 'text': prompt_text}
@@ -516,7 +573,8 @@ def blend_noise_tensors(seed_list, noise_bank, stream_diffusion):
         total_weight += weight
     return blended_noise
 
-def custom_txt2img_using_prepared_noise(stream_diffusion, expected_batch_size, output_type='np'):
+
+def custom_txt2img_using_prepared_noise(stream_diffusion, expected_batch_size, output_type='np', control_image=None):
     if stream_diffusion.init_noise.size(0) > expected_batch_size:
         adjusted_noise = stream_diffusion.init_noise[:expected_batch_size]
     elif stream_diffusion.init_noise.size(0) < expected_batch_size:
@@ -525,7 +583,8 @@ def custom_txt2img_using_prepared_noise(stream_diffusion, expected_batch_size, o
     else:
         adjusted_noise = stream_diffusion.init_noise
 
-    x_0_pred_out = stream_diffusion.predict_x0_batch(adjusted_noise)
+    # Pass the control image tensor to the predict_x0_batch function
+    x_0_pred_out = stream_diffusion.predict_x0_batch(adjusted_noise, control_image=control_image)
     x_output = stream_diffusion.decode_image(x_0_pred_out).detach().clone()
 
     if output_type == 'np':
@@ -534,7 +593,58 @@ def custom_txt2img_using_prepared_noise(stream_diffusion, expected_batch_size, o
     return x_output
 
 
+def safe_basename(path):
+    return os.path.basename(path) if path else "Not specified"
+
+def print_info(label, value=None, weight=None, start_phrase=None, color="green"):
+    color_codes = {
+        "black": "\033[30m",
+        "red": "\033[31m",
+        "green": "\033[32m",
+        "yellow": "\033[33m",
+        "blue": "\033[34m",
+        "magenta": "\033[35m",
+        "cyan": "\033[36m",
+        "white": "\033[37m",
+        "default": "\033[39m"
+    }
+    color_code = color_codes.get(color, "\033[32m")  # Default to green if color not found
+
+    if start_phrase:
+        print(start_phrase)
+    if value and value != "None":
+        base_name = safe_basename(value)
+        weight_info = f", Weight: {weight}" if weight is not None else ""
+        print(f"{label} {base_name}{weight_info}")
+        print(f"{color_code}{value}\033[0m\n")
+    # else:
+    #     print(f"{label}: None\n")
+
+
+
+
+    # else:
+    #     print(f"{label}: None\n")
+# def custom_txt2img_using_prepared_noise(stream_diffusion, expected_batch_size, output_type='np'):
+#     if stream_diffusion.init_noise.size(0) > expected_batch_size:
+#         adjusted_noise = stream_diffusion.init_noise[:expected_batch_size]
+#     elif stream_diffusion.init_noise.size(0) < expected_batch_size:
+#         repeats = [expected_batch_size // stream_diffusion.init_noise.size(0)] + [-1] * (stream_diffusion.init_noise.dim() - 1)
+#         adjusted_noise = stream_diffusion.init_noise.repeat(*repeats)[:expected_batch_size]
+#     else:
+#         adjusted_noise = stream_diffusion.init_noise
+
+#     x_0_pred_out = stream_diffusion.predict_x0_batch(adjusted_noise)
+#     x_output = stream_diffusion.decode_image(x_0_pred_out).detach().clone()
+
+#     if output_type == 'np':
+#         x_output = postprocess_image(x_output, output_type=output_type)
+
+#     return x_output
+
+
 def main():
+
     def signal_handler(sig, frame):
         print('Exiting...')
         terminate_processes([osc_process, generation_process])
@@ -543,10 +653,8 @@ def main():
     parser = argparse.ArgumentParser(description="StreamDiffusion NDI Stream Script")
     parser.add_argument('-c', '--config', type=str, default='stream_config.json', help='Path to the configuration file')
     args = parser.parse_args()
-    print_sdtd_title()
     current_script_dir = os.path.dirname(os.path.abspath(__file__))
     config_file_path = os.path.join(current_script_dir, args.config)
-    print(f"Config file path: {config_file_path}")
     with open(config_file_path, 'r') as config_file:
         config = json.load(config_file)
     # Open and read the config file
@@ -579,35 +687,42 @@ def main():
     use_karras_sigmas = config.get("use_karras_sigmas", False)
     input_mem_name = config["input_mem_name"]
     device = "cuda" if platform.system() == "Windows" else "mps"
-    print (" Device is ", device)   
-    print(f"\n\ninput_mem_name: {input_mem_name}\n")
-
-    print(f"Model ID or Path: {model_id_or_path}\n")
-    if lcm_lora_id is not None:
-        print(f"LCM LoRA ID: {lcm_lora_id}\n")
-    else:
-        print("LCM LoRA ID: None\n")
-    if vae_id is not None:
-        print(f"VAE ID: {vae_id}\n")
-    else:
-        print("VAE ID: None\n")
-    if lora_dict is not None:
-        for model_path, weight in lora_dict.items():
-            print(f"LoRA Model: {model_path}, Weight: {weight}\n\n")
-    print("====================================\n")
-
-
-    if os.path.isfile(model_id_or_path):
-        model_id_or_path = model_id_or_path.replace('/', '\\')
-
+    use_controlnet = config.get("use_controlnet", False)
+    controlnet_model = config.get("controlnet_model", None)
+    controlnet_weight = config.get("controlnet_weight", 0.5)
 
     with Manager() as manager:
+        print_sdtd_title()
+
         shared_data = manager.dict()
         shared_data["prompt"] = prompt
-
+        shared_data["input_mem_name"] = input_mem_name
         osc_process = Process(target=osc_server, args=(shared_data, '127.0.0.1', osc_receive_port))
         osc_process.start()
 
+
+        if platform.system() == "Windows":
+            print("Operating System: Windows... Using CUDA.\n")
+        else:
+            print("Operating System: macOS... Using MPS.\n")
+
+        print_info("Loading", config_file_path, color="cyan")
+        print_info("Main SD Model:", model_id_or_path, start_phrase="\033[36m====================================\033[0m")
+        print_info("LCM LoRA ID:", lcm_lora_id)
+        print_info("VAE ID:", vae_id)
+        if use_controlnet:
+            print_info("ControlNet Model:", controlnet_model, weight=controlnet_weight)
+        if lora_dict:
+            for model_path, weight in lora_dict.items():
+                print_info("LoRA Model:", model_path, weight)
+        print("Stream name: ", input_mem_name)
+        print("\033[36m====================================\033[0m\n")
+
+        if os.path.isfile(model_id_or_path):
+            model_id_or_path = model_id_or_path.replace('/', '\\')
+
+
+        time.sleep(.3)
         generation_process = Process(
             target=image_generation_process,
             args=(
@@ -637,7 +752,10 @@ def main():
                 osc_transmit_port,
                 scheduler_name,
                 use_karras_sigmas,
-                device
+                device,
+                use_controlnet,
+                controlnet_model,
+                controlnet_weight
                 ),
         )
         generation_process.start()
