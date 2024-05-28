@@ -873,8 +873,11 @@ print(json.dumps(model_details))
 
         return None  # Return None if no matching executable is found
 
+    
+
     def Installstreamdiffusion(self):
-        self.copy_ndi_code()
+        # self.copy_ndi_code()
+        self.clone_sdtd_repo()
         python_exe = self.find_python310_executable()
         if not python_exe:
             choice = ui.messageBox('Installation Error ! No Python detected.', 
@@ -1174,6 +1177,51 @@ pause
             else:
                 self.logger.log(f'{dat_name} DAT not found in streamdiffusionTD', level='ERROR')
 
+    def clone_sdtd_repo(self):
+        """
+        Clones the StreamDiffusionTD repository from GitHub into the specified Basefolder.
+        """
+        repo_url = 'https://github.com/fbarretto/streamdiffusion-td-mac.git'
+        
+        base_folder = self.ownerComp.par.Basefolder.eval()
+        sdtd_folder = os.path.join(base_folder, 'streamdiffusionTD')
+        
+        #check if folder exists and create if not
+        if not os.path.exists(sdtd_folder):
+            os.makedirs(sdtd_folder)
+        
+        #clone the repo
+
+        try:
+            success = self.clone_git_to_folder(repo_url, chosen_folder=sdtd_folder)
+            if success:
+                self.logger.log(f'Successfully cloned StreamDiffusionTD repository into {sdtd_folder}', level='INFO')
+                # Paths to the Text DATs inside the 'streamdiffusionTD' base comp
+                streamdiffusionTD_comp = self.ownerComp.op('streamdiffusionTD')
+                text_dat_paths = {
+                    'main_sdtd.py': 'main_sdtd',
+                    'ndi_spout_utils.py': 'ndi_spout_utils',
+                    'requirements.txt': 'requirements',
+                    'stream_config.json': 'stream_config',
+                    'pipeline_td.py': 'pipeline_td',
+                    'wrapper_td.py': 'wrapper_td'
+                }
+                
+                #for each file, copy its content to the corresponding text dat
+                for filename, dat_name in text_dat_paths.items():
+                    file_path = os.path.join(sdtd_folder, filename)
+                    dat = streamdiffusionTD_comp.op(dat_name)
+                    with open(file_path, 'r') as file:
+                        dat.text = file.read()
+                
+            else:
+                self.logger.log(f'Failed to clone StreamDiffusionTD repository into {sdtd_folder}', level='ERROR')
+        except Exception as e:
+            self.logger.log(f'Error cloning StreamDiffusionTD repository: {e}', level='ERROR')
+            return False
+        
+        return True
+            
     def Basefolder(self):
         self.sync_model_table()
         self.update_preset_dropdown()
