@@ -53,7 +53,17 @@ param_json_map = {
     # "Usekarrassigmas": "use_karras_sigmas"
 }
 
-
+model_preset_params = [
+    "Modelid",
+    "Customlcm",
+    "Customvae",
+    "Loradictblock",
+    "Uselora",
+    "Usecustomlcm",
+    "Usecustomvae",
+    "Acceleration",
+    "Tindexblock"
+]
 
 class StreamDiffusionExt: 
     """
@@ -332,7 +342,7 @@ if exist venv (
             subprocess.Popen(['open', '-a', 'Terminal', bat_file_path], cwd=self.ownerComp.par.Basefolder.eval())
             self.logger.log(f'Started streaming using Terminal.', level='INFO')
 
-      
+
     def Stopstream(self):
         """
         Sends a /stop command to the OSC server.
@@ -868,7 +878,7 @@ print(json.dumps(model_details))
             if set_base_folder:
                 self.ownerComp.par.Basefolder = previous_base_folder
             return False
-        
+
         batch_file_content_win = f"""
             @echo off
             echo Current directory: %CD%
@@ -1037,6 +1047,51 @@ pause
         print("TensorRT installation initiated.")
 
 
+    def Updaterepo(self):
+        base_folder = self.ownerComp.par.Basefolder.eval()
+        if not os.path.exists(base_folder):
+            self.logger.log("StreamDiffusion folder not found. Please make sure the repository is cloned.", level="ERROR")
+            return
+
+        # Path to the virtual environment's Python executable
+        if platform.system() == 'Windows':
+            venv_path = os.path.join(base_folder, 'venv', 'Scripts', 'python.exe')
+            if not os.path.exists(venv_path):
+                venv_path = os.path.join(base_folder, '.venv', 'Scripts', 'python.exe')
+        elif platform.system() == 'Darwin':
+            venv_path = os.path.join(base_folder, 'venv', 'bin', 'python')
+            if not os.path.exists(venv_path):
+                venv_path = os.path.join(base_folder, '.venv', 'bin', 'python')
+        else:
+            self.logger.log("Unsupported operating system.", level="ERROR")
+            return
+
+        if not os.path.exists(venv_path):
+            self.logger.log("Python executable in virtual environment not found.", level="ERROR")
+            return
+
+        try:
+            if platform.system() == 'Windows':
+                # Create a subprocess to run the pip install command on Windows
+                command = [venv_path, '-m', 'pip', 'install', '-e', base_folder]
+                process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+            elif platform.system() == 'Darwin':
+                # Create a subprocess to run the pip install command on macOS
+                command = [venv_path, '-m', 'pip', 'install', '-e', base_folder]
+                process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+            else:
+                self.logger.log("Unsupported operating system.", level="ERROR")
+                return
+
+            stdout, stderr = process.communicate()
+
+            if process.returncode == 0:
+                self.logger.log("StreamDiffusion repository updated successfully.", level="INFO")
+            else:
+                self.logger.log(f"Error updating StreamDiffusion repository: {stderr}", level="ERROR")
+
+        except Exception as e:
+            self.logger.log(f"Error updating StreamDiffusion repository: {str(e)}", level="ERROR")
 
     def copy_ndi_code(self):
         """
@@ -1100,8 +1155,6 @@ pause
                     t_index_list.append(step_value)     # Append the step value to the list
                 config[json_key] = t_index_list
 
-
-
             else:
                 param_value = getattr(self.ownerComp.par, param_name).eval()
                 config[json_key] = param_value
@@ -1111,11 +1164,17 @@ pause
             if param_name == "Width":
                 config[json_key] = round(param_value / 8) * 8
                 # print(f"Width: {config['width']}")  # Use 'width' instead of 'Width'
-                self.ownerComp.par.Width = config['width']
+                if self.ownerComp.par.Width.mode == ParMode.CONSTANT:
+                    self.ownerComp.par.Width = config['width']
             if param_name == "Height":
                 config[json_key] = round(param_value / 8) * 8
                 # print(f"Height: {config['height']}")  # Use 'height' instead of 'Height'
-                self.ownerComp.par.Height = config['height']
+                if self.ownerComp.par.Height.mode == ParMode.CONSTANT:
+                    self.ownerComp.par.Height = config['height']
+
+            #correct Model path
+            if param_name == "Modelid":
+                print(config['model_id_or_path'])
 
         for key in keys_to_remove:
             if key in config:
@@ -1135,6 +1194,210 @@ pause
 
         stream_config_dat.text = json.dumps(config, indent=4)
 
+ 
+    def normalize_model_id(self, model_id):
+        """
+        Normalizes a model ID to extract the file name or the last folder name from a path.
+        If the model ID is a simple identifier with a single '/', it returns the last segment.
+        """
+        if not model_id or model_id == "":
+            return None
+        # Use os.path.basename to handle both Windows and Unix-like paths
+        normalized_id = os.path.basename(model_id)
+        
+        # Truncate if the normalized ID is longer than 15 characters
+        if len(normalized_id) > 15:
+            normalized_id = normalized_id[:15]
+        
+        return normalized_id
+
+
+
+    def Savepreset(self, preset_name=None):
+        if preset_name is None:
+            # Generate a simple auto-name
+            simple_name = self.generate_simple_preset_name()
+            # Open a dialog to ask for the preset name, showing the simple name in the dialog text
+            op.TDResources.PopDialog.OpenDefault(
+                text=f'Enter the name for the preset or use the suggested name:\n\n{simple_name}',
+                title='Name Preset',
+                # buttons=['Use Suggested', 'OK', 'Cancel'],
+                buttons=['OK', 'Cancel'],
+                callback=self._presetNameDialogChoice,
+                textEntry=True,
+                # escButton=2,  # Index of "Cancel" button
+                # enterButton=1,  # Index of "OK" button
+                escButton=1,  # Index of "Cancel" button
+                enterButton=0,  # Index of "OK" button
+                escOnClickAway=True
+            )
+        else:
+            # Save the preset with the provided name
+            self._saveAndHandlePreset(preset_name)
+
+    def _presetNameDialogChoice(self, info):
+        # Check which button was clicked
+        if info['button'] == "OK":
+            preset_name = info['enteredText']
+        # elif info['button'] == "Use Suggested":
+        #     preset_name = self.generate_simple_preset_name()  # Retrieve the simple name again
+        else:
+            return  # Cancel or close the dialog
+        if preset_name == "":
+            preset_name = self.generate_simple_preset_name() 
+        self._saveAndHandlePreset(preset_name)
+
+    def _saveAndHandlePreset(self, preset_name):
+        # Save the preset
+        preset_name = self.save_preset(preset_name)
+        self.update_preset_dropdown()
+        return preset_name
+
+    def generate_simple_preset_name(self):
+        # Generate a simple name based on a few parameters
+        model_id = self.normalize_model_id(self.ownerComp.par.Modelid.eval())
+        # Check if model_id is a valid Windows path and extract the file or folder name
+
+        acceleration = self.ownerComp.par.Acceleration.eval()
+        numblocks = self.ownerComp.par.Tindexblock.sequence.numBlocks
+        if self.ownerComp.par.Usecustomlcm.eval():
+            customlcm = self.normalize_model_id(self.ownerComp.par.Customlcm.eval())
+        else:
+            customlcm = False
+        if self.ownerComp.par.Usecustomvae.eval():
+            customvae = self.normalize_model_id(self.ownerComp.par.Customvae.eval())
+        else:
+            customvae = False
+        simple_name = f"{model_id}"
+        if acceleration != 'none':
+            simple_name += f"_{acceleration}"
+        simple_name += f"_{numblocks}steps"
+        if customlcm:
+            simple_name += f"_{customlcm}"
+        if customvae:
+            simple_name += f"_{customvae}"
+        #shorten to 40 chars
+        if len(simple_name) > 40:
+            simple_name = simple_name[:40]
+        return simple_name
+
+    def save_preset(self, preset_name=None, preset_file_path=None):
+        if preset_name is None:
+            preset_name = "Default"
+        if preset_file_path is None:
+            preset_file_path = os.path.join(self.ownerComp.par.Basefolder.eval(), 'StreamDiffusionTD', 'model_presets.json')
+        
+        # Check if the file already exists
+        file_exists = os.path.exists(preset_file_path)
+        
+        os.makedirs(os.path.dirname(preset_file_path), exist_ok=True)
+        presets_list = self.load_presets_list(preset_file_path)
+
+        current_preset = {"preset_name": preset_name}
+        for param_name in model_preset_params:
+            if param_name == "Loradictblock":
+                if self.ownerComp.par.Uselora.eval():
+                    current_preset[param_name] = {block.par.Lorapath.eval(): block.par.Weight.eval() for block in self.ownerComp.par.Loradictblock.sequence}
+            elif param_name == "Customlcm":
+                if self.ownerComp.par.Usecustomlcm.eval():
+                    current_preset[param_name] = getattr(self.ownerComp.par, param_name).eval()
+            elif param_name == "Customvae":
+                if self.ownerComp.par.Usecustomvae.eval():
+                    current_preset[param_name] = getattr(self.ownerComp.par, param_name).eval()
+            elif param_name == "Tindexblock":
+                current_preset[param_name] = self.ownerComp.par.Tindexblock.sequence.numBlocks
+            else:
+                current_preset[param_name] = getattr(self.ownerComp.par, param_name).eval()
+
+        if not any(preset['preset_name'] == preset_name for preset in presets_list):
+            presets_list.append(current_preset)
+            with open(preset_file_path, 'w') as file:
+                json.dump(presets_list, file, indent=4)
+            self.logger.log(f'Preset saved: {preset_name}', level='INFO')
+        else:
+            choice = ui.messageBox('Preset Exists',
+                                f'A preset named "{preset_name}" already exists. Do you want to overwrite it?',
+                                buttons=['Overwrite', 'Cancel'])
+            if choice == 0:  # Overwrite
+                # Find and remove the existing preset
+                presets_list = [preset for preset in presets_list if preset['preset_name'] != preset_name]
+                presets_list.append(current_preset)
+                with open(preset_file_path, 'w') as file:
+                    json.dump(presets_list, file, indent=4)
+                self.logger.log(f'Preset overwritten: {preset_name}', level='INFO')
+
+        if not file_exists:
+            # Use 'model_preset_params' to generate the parameter list
+            param_list = '\n'.join(model_preset_params)
+            ui.messageBox('First Time Setup',
+                        f'The following parameters are stored in the presets:\n{param_list}',
+                        buttons=['OK'])
+
+        return preset_name
+
+    def load_preset(self, preset_name=None, preset_file_path=None):
+        if preset_name is None:
+            preset_name = "Default"
+        if preset_file_path is None:
+            preset_file_path = os.path.join(self.ownerComp.par.Basefolder.eval(), 'StreamDiffusionTD', 'model_presets.json')
+        
+        presets_list = self.load_presets_list(preset_file_path)
+        # print(presets_list)
+        preset = next((p for p in presets_list if p['preset_name'] == preset_name), None)
+        if preset is not None:
+            for param_name in model_preset_params:
+                if param_name == "Loradictblock":
+                    loradict = preset.get(param_name, {})
+                    lora_sequence = self.ownerComp.par.Loradictblock.sequence
+                    if loradict:
+                        lora_sequence.numBlocks = len(loradict)
+                        for i, (block_path, weight) in enumerate(loradict.items()):
+                            lora_sequence[i].par.Lorapath = block_path
+                            lora_sequence[i].par.Weight = weight
+                    # else:
+                        # lora_sequence.numBlocks = 1 
+                        # self.logger.log("Loradict is empty, setting numBlocks to minimum valid size.", level='WARNING')
+                elif param_name == "Tindexblock":
+                    self.ownerComp.par.Tindexblock.sequence.numBlocks = preset.get(param_name, self.ownerComp.par.Tindexblock.sequence.numBlocks)
+                elif param_name == "Modelid":
+                    try:
+                        model_name = preset.get(param_name, getattr(self.ownerComp.par, param_name).default)
+                        self.ownerComp.par.Mymodels = model_name
+                        # print(model_name)
+                    except:
+                        continue
+                    setattr(self.ownerComp.par, param_name, preset.get(param_name, getattr(self.ownerComp.par, param_name).default))
+                else:
+                    setattr(self.ownerComp.par, param_name, preset.get(param_name, getattr(self.ownerComp.par, param_name).default))
+            self.logger.log(f'Preset loaded: {preset_name}', level='INFO')
+            self.ownerComp.par.Lastpreset = preset_name
+        else:
+            self.logger.log(f'Preset with name "{preset_name}" not found.', level='WARNING')
+            self.update_preset_dropdown()
+
+    def load_presets_list(self, preset_file_path):
+        if os.path.exists(preset_file_path):
+            with open(preset_file_path, 'r') as file:
+                return json.load(file)
+        else:
+            return []
+
+    def Loadpreset(self, preset_name=None):
+        if preset_name is None:
+            preset_name = self.ownerComp.par.Presetname.eval()
+        self.load_preset(preset_name)
+
+    def update_preset_dropdown(self, reset=False):
+        if reset:
+            # Reset the Presetname menu to a default message
+            self.ownerComp.par.Presetname.menuNames = ['Saved Model Configs Will Show Here']
+            self.ownerComp.par.Presetname.menuLabels = ['Saved Model Configs Will Show Here']
+        else:
+            preset_file_path = os.path.join(self.ownerComp.par.Basefolder.eval(), 'StreamDiffusionTD', 'model_presets.json')
+            presets_list = self.load_presets_list(preset_file_path)
+            preset_names = [preset['preset_name'] for preset in presets_list]
+            self.ownerComp.par.Presetname.menuNames = preset_names
+            self.ownerComp.par.Presetname.menuLabels = preset_names
 
 
 
