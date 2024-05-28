@@ -1,4 +1,4 @@
-#wrapper td
+#wrapper td  cn 
 import gc
 import os
 from pathlib import Path
@@ -7,7 +7,10 @@ from typing import List, Literal, Optional, Union, Dict
 
 import numpy as np
 import torch
-from diffusers import AutoencoderTiny, StableDiffusionPipeline, StableDiffusionXLPipeline
+from diffusers import AutoencoderTiny, StableDiffusionPipeline, StableDiffusionXLPipeline, StableDiffusionControlNetImg2ImgPipeline, StableDiffusionXLControlNetImg2ImgPipeline, ControlNetModel, StableDiffusionXLControlNetPipeline
+# from diffusers import TCDScheduler
+from diffusers import DDIMScheduler
+
 from PIL import Image
 import time
 import re
@@ -15,7 +18,6 @@ from pipeline_td import StreamDiffusion
 
 # from streamdiffusion import StreamDiffusion
 from streamdiffusion.image_utils import postprocess_image
-
 
 torch.set_grad_enabled(False)
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -54,6 +56,8 @@ class StreamDiffusionWrapper:
         sdxl: bool = None,
         scheduler_name: str = "EulerAncestral",  # Default scheduler name
         use_karras_sigmas: bool = False,  # Default setting for Karras sigmas
+        use_controlnet: bool = False,
+        controlnet_model: Optional[str] = None,
     ):
         """
         Initializes the StreamDiffusionWrapper.
@@ -130,8 +134,7 @@ class StreamDiffusionWrapper:
             self.sdxl = sdxl
         
         self.vae_model_id = "madebyollin/taesdxl" if self.sdxl else "madebyollin/taesd"
-        print("\n====================================")
-        print(f"VAE Model ID: {self.vae_model_id}")
+        # print(f"VAE Model ID: {self.vae_model_id}")
         if mode == "txt2img":
             if cfg_type != "none":
                 raise ValueError(
@@ -180,8 +183,13 @@ class StreamDiffusionWrapper:
             seed=seed,
             engine_dir=engine_dir,
             scheduler_name=scheduler_name,
-            use_karras_sigmas=use_karras_sigmas
+            use_karras_sigmas=use_karras_sigmas,
+            use_controlnet=use_controlnet,
+            controlnet_model=controlnet_model
         )
+
+        if hasattr(self.stream.unet, 'config'):
+            self.stream.unet.config.addition_embed_type = None
 
         if device_ids is not None:
             self.stream.unet = torch.nn.DataParallel(
@@ -190,7 +198,6 @@ class StreamDiffusionWrapper:
 
         if enable_similar_image_filter:
             self.stream.enable_similar_image_filter(similar_image_filter_threshold, similar_image_filter_max_skip_frame)
-
 
     def prepare(
         self,
@@ -271,8 +278,7 @@ class StreamDiffusionWrapper:
             image_tensor = self.stream.txt2img_sd_turbo(self.batch_size)
         else:
             image_tensor = self.stream.txt2img(self.frame_buffer_size)
-        image = self.postprocess_image(
-            image_tensor, output_type=self.output_type)
+        image = self.postprocess_image(image_tensor, output_type=self.output_type)
 
         if self.use_safety_checker:
             safety_checker_input = self.feature_extractor(
@@ -309,8 +315,7 @@ class StreamDiffusionWrapper:
             image = self.preprocess_image(image)
 
         image_tensor = self.stream(image)
-        image = self.postprocess_image(
-            image_tensor, output_type=self.output_type)
+        image = self.postprocess_image(image_tensor, output_type=self.output_type)
 
         if self.use_safety_checker:
             safety_checker_input = self.feature_extractor(
@@ -339,8 +344,7 @@ class StreamDiffusionWrapper:
             The preprocessed image.
         """
         if isinstance(image, str):
-            image = Image.open(image).convert(
-                "RGB").resize((self.width, self.height))
+            image = Image.open(image).convert("RGB").resize((self.width, self.height))
         if isinstance(image, Image.Image):
             image = image.convert("RGB").resize((self.width, self.height))
 
@@ -385,7 +389,9 @@ class StreamDiffusionWrapper:
         seed: int = 2,
         engine_dir: Optional[Union[str, Path]] = "engines",
         scheduler_name: str = "EulerAncestral",  # Default scheduler name
-        use_karras_sigmas: bool = False  # Default setting for Karras sigmas
+        use_karras_sigmas: bool = False,  # Default setting for Karras sigmas
+        use_controlnet: bool = False,  # Default setting for ControlNet
+        controlnet_model: Optional[str] = None,
 
     ) -> StreamDiffusion:
         """
@@ -437,42 +443,89 @@ class StreamDiffusionWrapper:
         StreamDiffusion
             The loaded model.
         """
-        print(f"\nModel {model_id_or_path}") 
+        print("\n====================================")
+        print("\033[36m...Loading models...\033[0m")
+        model_name = os.path.basename(model_id_or_path)
 
-        if self.sdxl:
-            print(f"\nLoading SDXL model: {model_id_or_path}")
-            try:  # Load from local directory
-                pipe: StableDiffusionXLPipeline = StableDiffusionXLPipeline.from_pretrained(
-                    model_id_or_path,
-                ).to(device=self.device, dtype=self.dtype)
+        use_sdxl = self.sdxl  # This should be an attribute of the class or set elsewhere
+        self.use_controlnet = use_controlnet
 
-            except ValueError:  # Load from huggingface
-                pipe: StableDiffusionXLPipeline = StableDiffusionXLPipeline.from_single_file(
+        if use_controlnet:
+            # Determine the specific ControlNet model to load
+            controlnet_id = controlnet_model if controlnet_model else "lllyasviel/sd-controlnet-canny"
+            cn_model_name = os.path.basename(controlnet_id)
+            print(f"\n\033[36m...Loading ControlNet model: {cn_model_name}\033[0m") 
+            try:
+                # Try loading the ControlNet model using from_pretrained
+                controlnet = ControlNetModel.from_pretrained(controlnet_id, torch_dtype=torch.float16).to(device=self.device, dtype=self.dtype)
+                print(f"Successfully loaded ControlNet model from Huggingface")
+                print(f"\033[92m{controlnet_id}\033[0m\n")
+            except Exception as e:
+                pretrained_error = e
+                # print(f"Failed to load ControlNet model {controlnet_id} using from_pretrained due to: {e}")
+                # Attempt to load from a single file if from_pretrained fails
+                try:
+                    # print(f"\nLoading ControlNet model from single file: {controlnet_id}")
+                    controlnet = ControlNetModel.from_single_file(controlnet_id).to(device=self.device, dtype=self.dtype)
+                    print(f"Successfully loaded ControlNet model from local directory:")
+                    print(f"\033[92m{controlnet_id}\033[0m\n")
+                except Exception as e:
+                    print(f"Failed to load ControlNet model {controlnet_id} using from Huggingface (from_pretrained) due to: {pretrained_error}")
+                    print(f"Failed to load ControlNet model from local directory (from_single_file) {controlnet_id} due to: {e}")
+                    traceback.print_exc()
+                    exit()
+            
+
+            # Decide on which pipeline to use based on use_sdxl flag
+            if use_sdxl:
+                print(f"\n\033[36m...Loading SDXL StableDiffusion model with ControlNet: {model_name}\033[0m")
+                pipeline_class = StableDiffusionXLControlNetPipeline
+            else:
+                print(f"\n\033[36m...Loading StableDiffusion model with ControlNet: {model_name}\033[0m")
+                pipeline_class = StableDiffusionControlNetImg2ImgPipeline
+
+            # Load the appropriate pipeline
+            try:
+                pipe = pipeline_class.from_pretrained(
                     model_id_or_path,
+                    controlnet=controlnet,
+                    # torch_dtype=torch.float16
                 ).to(device=self.device, dtype=self.dtype)
-            except Exception:  # No model found
+                print(f"Successfully loaded {model_name} from Huggingface:")
+                print(f"\033[92m{model_id_or_path}\033[0m\n")
+            except ValueError:  # Fallback to loading from a single file if from_pretrained fails
+                pipe = pipeline_class.from_single_file(
+                    model_id_or_path,
+                    controlnet=controlnet,
+                    # torch_dtype=torch.float16
+                ).to(device=self.device, dtype=self.dtype)
+                print(f"Successfully loaded {model_name} from local directory:")
+                print(f"\033[92m{model_id_or_path}\033[0m\n")
+            except Exception as e:
+                print(f"Failed to load model with ControlNet due to: {e}")
                 traceback.print_exc()
-                print("Model load has failed. Doesn't exist.")
                 exit()
+
         else:
-            print(f"\nLoading SD model: {model_id_or_path}\n")
-            try:  # Load from local directory
-                pipe: StableDiffusionPipeline = StableDiffusionPipeline.from_pretrained(
-                    model_id_or_path,
-                ).to(device=self.device, dtype=self.dtype)
+            pipeline_class = StableDiffusionXLPipeline if use_sdxl else StableDiffusionPipeline
+            model_type = "SDXL" if use_sdxl else "SD"
 
-            except ValueError:  # Load from huggingface
-                print("Loading from single file")
-                pipe: StableDiffusionPipeline = StableDiffusionPipeline.from_single_file(
-                    model_id_or_path,
-                ).to(device=self.device, dtype=self.dtype)
-            except Exception:  # No model found
-                traceback.print_exc()
-                print("Model load has failed. Doesn't exist.")
-                exit()
-
-        # scheduler = self.load_scheduler(scheduler_name, use_karras_sigmas)
-        # pipe.scheduler = scheduler  # Attach scheduler to the pipeline
+            print(f"\n\033[36m...Loading {model_type} model: {model_name}\033[0m")
+            try:
+                pipe = pipeline_class.from_pretrained(model_id_or_path)
+                print(f"Successfully loaded {model_name} from Hugging Face:")
+                print(f"\033[92m{model_id_or_path}\033[0m\n")
+            except ValueError:
+                try:
+                    pipe = pipeline_class.from_single_file(model_id_or_path)
+                    print(f"Successfully loaded {model_name} from local directory:")
+                    print(f"\033[92m{model_id_or_path}\033[0m\n")
+                except Exception as e:
+                    print(f"Failed to load {model_type} model from both local and Hugging Face due to: {e}")
+                    traceback.print_exc()
+                    exit()
+            finally:
+                pipe = pipe.to(device=self.device, dtype=self.dtype)
 
         stream = StreamDiffusion(
             pipe=pipe,
@@ -484,9 +537,11 @@ class StreamDiffusionWrapper:
             frame_buffer_size=self.frame_buffer_size,
             use_denoising_batch=self.use_denoising_batch,
             cfg_type=cfg_type,
+            use_controlnet=use_controlnet,
         )
         if not self.sd_turbo:
             if use_lcm_lora:
+                print(f"\n\033[36m...Loading LCM-LoRA Model: {os.path.basename(lcm_lora_id) if lcm_lora_id else 'latent-consistency/lcm-lora-sdv1-5'}\033[0m")
                 try:
                     if lcm_lora_id is not None:
                         stream.load_lcm_lora(
@@ -495,22 +550,31 @@ class StreamDiffusionWrapper:
                     else:
                         stream.load_lcm_lora()
                     stream.fuse_lora()
+                    print(f"Successfully loaded LCM-LoRA model:")
+                    print(f"\033[92m{lcm_lora_id}\033[0m\n")
                 except Exception as e:
                     print(f"\nERROR loading Local LCM-LoRA: {e}\n")
         if lora_dict is not None:
             try:
                 
                     for lora_name, lora_scale in lora_dict.items():
-                        print("\n====================================")
-                        print(f"Loading LoRA: {lora_name}\nWeight: {lora_scale}")
+                        # print("\n====================================")
+                        print(f"\n\033[36m...Loading additional LoRA Model:  {os.path.basename(lora_name)}, Weight: {lora_scale}\033[0m")
                         stream.load_lora(lora_name)
                         stream.fuse_lora(lora_scale=lora_scale)
+                        print(f"Successfully loaded LoRA model:")
+                        print(f"\033[92m{lora_name}\033[0m\n")
             except Exception as e:
                 print(f"\nERROR loading LoRA Models: {e}\n")
                 pass
-            print("====================================\n")
+            # print("====================================\n")
+
+        if hasattr(stream.unet, 'config'):
+            stream.unet.config.addition_embed_type = None
+
 
         if use_tiny_vae:
+            print(f"\n\033[36m...Loading VAE: {vae_id if vae_id else self.vae_model_id}\033[0m")
             if vae_id is not None:
                 stream.vae = AutoencoderTiny.from_pretrained(vae_id).to(
                     device=pipe.device, dtype=pipe.dtype
@@ -519,7 +583,11 @@ class StreamDiffusionWrapper:
                 stream.vae = AutoencoderTiny.from_pretrained(self.vae_model_id).to(
                     device=pipe.device, dtype=pipe.dtype
                 )
-
+            print(f"Successfully loaded VAE model:")
+            print(f"\033[92m{vae_id if vae_id else self.vae_model_id}\033[0m\n")
+        # pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config, timestep_spacing="trailing")
+        # print("scheduler")
+        # print(pipe.scheduler)
         try:
             if acceleration == "xformers":
                 stream.pipe.enable_xformers_memory_efficient_attention()
@@ -544,16 +612,24 @@ class StreamDiffusionWrapper:
                     VAEEncoder,
                 )
 
+
                 def create_prefix(
                     model_id_or_path: str,
                     max_batch_size: int,
                     min_batch_size: int,
+                    width: int,
+                    height: int,
                 ):
+                    if width == 512 and height == 512:
+                        resolution = ""
+                    else:
+                        resolution = f"--width-{width}--height-{height}"
                     maybe_path = Path(model_id_or_path)
                     if maybe_path.exists():
-                        return f"{maybe_path.stem}--lcm_lora-{use_lcm_lora}--tiny_vae-{use_tiny_vae}--max_batch-{max_batch_size}--min_batch-{min_batch_size}--mode-{self.mode}"
+                        return f"{maybe_path.stem}--lcm_lora-{use_lcm_lora}--tiny_vae-{use_tiny_vae}--max_batch-{max_batch_size}--min_batch-{min_batch_size}--mode-{self.mode}{resolution}"
                     else:
-                        return f"{model_id_or_path}--lcm_lora-{use_lcm_lora}--tiny_vae-{use_tiny_vae}--max_batch-{max_batch_size}--min_batch-{min_batch_size}--mode-{self.mode}"
+                        return f"{model_id_or_path}--lcm_lora-{use_lcm_lora}--tiny_vae-{use_tiny_vae}--max_batch-{max_batch_size}--min_batch-{min_batch_size}--mode-{self.mode}{resolution}"
+
 
                 engine_dir = Path(engine_dir)
                 unet_path = os.path.join(
@@ -562,6 +638,8 @@ class StreamDiffusionWrapper:
                         model_id_or_path=model_id_or_path,
                         max_batch_size=stream.trt_unet_batch_size,
                         min_batch_size=stream.trt_unet_batch_size,
+                        width=self.width,
+                        height=self.height,
                     ),
                     "unet.engine",
                 )
@@ -575,6 +653,8 @@ class StreamDiffusionWrapper:
                         min_batch_size=self.batch_size
                         if self.mode == "txt2img"
                         else stream.frame_bff_size,
+                        width=self.width,
+                        height=self.height,
                     ),
                     "vae_encoder.engine",
                 )
@@ -588,9 +668,17 @@ class StreamDiffusionWrapper:
                         min_batch_size=self.batch_size
                         if self.mode == "txt2img"
                         else stream.frame_bff_size,
+                        width=self.width,
+                        height=self.height,
                     ),
                     "vae_decoder.engine",
                 )
+                # print("!!! \033[1mSTARTING TENSORRT\033[0m !!!\n--------------------------------")
+                # print(f"self.sdxl value: {self.sdxl}")
+                engine_build_options = {
+                    "opt_image_height": self.height,
+                    "opt_image_width": self.width,
+                }
 
                 if not os.path.exists(unet_path):
                     os.makedirs(os.path.dirname(unet_path), exist_ok=True)
@@ -601,6 +689,7 @@ class StreamDiffusionWrapper:
                         min_batch_size=stream.trt_unet_batch_size,
                         embedding_dim=stream.text_encoder.config.hidden_size,
                         unet_dim=stream.unet.config.in_channels,
+                        # is_xl=self.sdxl,
 
                     )
                     print("\nCompiling TensorRT UNet...\nThis may take a moment...\n")
@@ -612,11 +701,12 @@ class StreamDiffusionWrapper:
                         unet_path + ".opt.onnx",
                         unet_path,
                         opt_batch_size=stream.trt_unet_batch_size,
+                        engine_build_options=engine_build_options,
+                        # is_xl=self.sdxl,
                     )
 
                 if not os.path.exists(vae_decoder_path):
-                    os.makedirs(os.path.dirname(
-                        vae_decoder_path), exist_ok=True)
+                    os.makedirs(os.path.dirname(vae_decoder_path), exist_ok=True)
                     stream.vae.forward = stream.vae.decode
                     vae_decoder_model = VAE(
                         device=stream.device,
@@ -637,14 +727,14 @@ class StreamDiffusionWrapper:
                         opt_batch_size=self.batch_size
                         if self.mode == "txt2img"
                         else stream.frame_bff_size,
+                        engine_build_options=engine_build_options,
+
                     )
                     delattr(stream.vae, "forward")
 
                 if not os.path.exists(vae_encoder_path):
-                    os.makedirs(os.path.dirname(
-                        vae_encoder_path), exist_ok=True)
-                    vae_encoder = TorchVAEEncoder(
-                        stream.vae).to(torch.device("cuda"))
+                    os.makedirs(os.path.dirname(vae_encoder_path), exist_ok=True)
+                    vae_encoder = TorchVAEEncoder(stream.vae).to(torch.device("cuda"))
                     vae_encoder_model = VAEEncoder(
                         device=stream.device,
                         max_batch_size=self.batch_size
@@ -664,6 +754,7 @@ class StreamDiffusionWrapper:
                         opt_batch_size=self.batch_size
                         if self.mode == "txt2img"
                         else stream.frame_bff_size,
+                        engine_build_options=engine_build_options,
                     )
 
                 cuda_steram = cuda.Stream()
@@ -699,7 +790,7 @@ class StreamDiffusionWrapper:
             traceback.print_exc()
             print("Acceleration has failed. Falling back to normal mode.")
 
-        if seed < 0:  # Random seed
+        if seed < 0: # Random seed
             seed = np.random.randint(0, 1000000)
 
         stream.prepare(
