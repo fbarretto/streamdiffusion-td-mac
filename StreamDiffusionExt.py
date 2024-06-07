@@ -283,7 +283,7 @@ class StreamDiffusionExt:
         The batch file activates a Python virtual environment and starts the main script.
         """
         self.update_stream_config_dat()
-        self.copy_ndi_code()
+        # self.copy_ndi_code()
 
         base_folder = self.ownerComp.par.Basefolder.eval()
         venv_path = os.path.join(base_folder, 'venv')
@@ -442,7 +442,8 @@ if exist venv (
             return
         self.message_box_open = True
 
-        repo_url = 'https://github.com/cumulo-autumn/StreamDiffusion.git'
+        # repo_url = 'https://github.com/cumulo-autumn/StreamDiffusion.git'
+        repo_url = " https://github.com/zjysteven/StreamDiffusion.git" 
         base_folder_param = self.ownerComp.par.Basefolder  # Adhering to PND
         chosen_folder = base_folder_param.eval() if base_folder_param and base_folder_param.eval() else None
 
@@ -964,9 +965,8 @@ print(json.dumps(model_details))
             python -m pip install --upgrade pip
             python -m pip install torch==2.1.0 torchvision==0.16.0 xformers --index-url https://download.pytorch.org/whl/{cuda_version}
             python -m pip install -e .
-            python setup.py develop
+            python setup.py develop easy_install
             python -m pip install -r streamdiffusionTD/requirements.txt
-
             echo Installation Finished
             pause
         """
@@ -1057,7 +1057,7 @@ print(json.dumps(model_details))
 
     def Installtensorrt(self):
         self.update_stream_config_dat()
-        self.copy_ndi_code()
+        # self.copy_ndi_code()
         self.install_tensorrt()
 
     def install_tensorrt(self):
@@ -1084,7 +1084,7 @@ if "%VIRTUAL_ENV%" == "" (
 
 echo Installing TensorRT...
 python -m streamdiffusion.tools.install-tensorrt
-
+python -m pip install av
 echo TensorRT installation finished
 pause
         """
