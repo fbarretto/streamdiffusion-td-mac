@@ -883,7 +883,6 @@ print(json.dumps(model_details))
     def Installstreamdiffusion(self):
         # self.copy_ndi_code()
         self.clone_sdtd_repo()
-        return
         python_exe = self.find_python310_executable()
         if not python_exe:
             choice = ui.messageBox('Installation Error ! No Python detected.', 
@@ -1219,11 +1218,16 @@ pause
                 
                 #for each file, copy its content to the corresponding text dat
                 for filename, dat_name in text_dat_paths.items():
-                    file_path = os.path.join(sdtd_folder, filename)
-                    dat = streamdiffusionTD_comp.op(dat_name)
-                    with open(file_path, 'r') as file:
-                        dat.text = file.read()
-                
+                    try:
+                        file_path = os.path.join(sdtd_folder, filename)
+                        dat = streamdiffusionTD_comp.op(dat_name)
+                        with open(file_path, 'r') as file:
+                            dat.text = file.read()
+                    except Exception as e:
+                        self.logger.log(f'Error copying {filename} to {dat_name}: {e}', level='ERROR')
+                        continue
+                    else:
+                        self.logger.log(f'Copied {filename} to {dat_name}', level='Debug')
             else:
                 self.logger.log(f'Failed to clone StreamDiffusionTD repository into {sdtd_folder}', level='ERROR')
         except Exception as e:
