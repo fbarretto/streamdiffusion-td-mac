@@ -443,7 +443,7 @@ if exist venv (
         self.message_box_open = True
 
         # repo_url = 'https://github.com/cumulo-autumn/StreamDiffusion.git'
-        repo_url = " https://github.com/zjysteven/StreamDiffusion.git" 
+        repo_url = 'https://github.com/zjysteven/StreamDiffusion.git'
         base_folder_param = self.ownerComp.par.Basefolder  # Adhering to PND
         chosen_folder = base_folder_param.eval() if base_folder_param and base_folder_param.eval() else None
 
@@ -492,7 +492,7 @@ if exist venv (
         else:
             self.logger.log('Download failed.', level='ERROR')
 
-    def clone_git_to_folder(self, repo_url, chosen_folder=None, folder_parameter=None):
+    def clone_git_to_folder(self, repo_url, chosen_folder=None, folder_parameter=None, overrideFolderName=False):
         # Check if Git is installed
         if not self.is_git_installed():
             ui.messageBox('Git Not Found', 'Git is not installed on this system. Please install Git.')
@@ -513,12 +513,16 @@ if exist venv (
         if chosen_folder is None:
             return False
 
-        # Prepare the command to clone the repository
-        git_folder_name = repo_url.split('/')[-1].replace('.git', '')
-        clone_destination = os.path.join(chosen_folder, git_folder_name)
+        clone_destination = chosen_folder
+        if not overrideFolderName:
+            # Prepare the command to clone the repository
+            git_folder_name = repo_url.split('/')[-1].replace('.git', '')
+            clone_destination = os.path.join(chosen_folder, git_folder_name)
+        
         if (platform.system() == 'Windows'):
             clone_destination = clone_destination.replace('/', '\\')  # Ensure the path uses backslashes
         
+        print(f'Cloning to: {clone_destination}')
         # Execute the command to clone the repository
         try:
             command = ['git', 'clone', repo_url, clone_destination]
@@ -879,6 +883,7 @@ print(json.dumps(model_details))
     def Installstreamdiffusion(self):
         # self.copy_ndi_code()
         self.clone_sdtd_repo()
+        return
         python_exe = self.find_python310_executable()
         if not python_exe:
             choice = ui.messageBox('Installation Error ! No Python detected.', 
@@ -1186,6 +1191,11 @@ pause
         base_folder = self.ownerComp.par.Basefolder.eval()
         sdtd_folder = os.path.join(base_folder, 'streamdiffusionTD')
         
+        if platform.system() == 'Windows':
+            sdtd_folder = sdtd_folder.replace('/', '\\')
+
+        print(f'Cloning StreamDiffusionTD repository from {repo_url} into {sdtd_folder}')
+
         #check if folder exists and create if not
         if not os.path.exists(sdtd_folder):
             os.makedirs(sdtd_folder)
@@ -1193,7 +1203,7 @@ pause
         #clone the repo
 
         try:
-            success = self.clone_git_to_folder(repo_url, chosen_folder=sdtd_folder)
+            success = self.clone_git_to_folder(repo_url, chosen_folder=sdtd_folder, overrideFolderName=True)
             if success:
                 self.logger.log(f'Successfully cloned StreamDiffusionTD repository into {sdtd_folder}', level='INFO')
                 # Paths to the Text DATs inside the 'streamdiffusionTD' base comp
