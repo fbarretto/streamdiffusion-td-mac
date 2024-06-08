@@ -12,3 +12,8 @@ matplotlib
 python-osc
 SpoutGL ; sys_platform == 'Windows'
 PyOpenGL
+polygraphy
+onnx_graphsurgeon
+cuda-python
+colored
+onnxruntime-gpu
