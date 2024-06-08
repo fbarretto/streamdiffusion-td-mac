@@ -492,7 +492,7 @@ if exist venv (
         else:
             self.logger.log('Download failed.', level='ERROR')
 
-    def clone_git_to_folder(self, repo_url, chosen_folder=None, folder_parameter=None, overrideFolderName=False):
+    def clone_git_to_folder(self, repo_url, chosen_folder=None, folder_parameter=None, overrideFolderName=False, branch=None):
         # Check if Git is installed
         if not self.is_git_installed():
             ui.messageBox('Git Not Found', 'Git is not installed on this system. Please install Git.')
@@ -527,18 +527,34 @@ if exist venv (
         try:
             # if reepository exists, pull the latest changes
             if os.path.exists(clone_destination):
-                command = ['git', '-C', clone_destination, 'pull']
-                process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-                stdout, stderr = process.communicate()
+                # if branch is provided, checkout to the branch
+                if branch:
+                    command = ['git', '-C', clone_destination, 'checkout', branch]
+                    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                    stdout, stderr = process.communicate()
+                    print(f'Checking out to branch: {branch}')
+                else:
+                    command = ['git', '-C', clone_destination, 'pull']
+                    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                    stdout, stderr = process.communicate()
+                    print(f'Pulling latest changes')
 
                 if process.returncode != 0:
                     ui.messageBox('Error', f'Error updating repository:\n{stderr}')
                     self.logger.log(f'rtLCM: Error updating repository:\n{stderr}', level='ERROR')
                     return False
             else:
-                command = ['git', 'clone', repo_url, clone_destination]
-                process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-                stdout, stderr = process.communicate()
+                # if branch, clone the branch
+                if branch:
+                    command = ['git', 'clone', '-b', branch, repo_url, clone_destination]
+                    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                    stdout, stderr = process.communicate()
+                    print(f'Cloning branch: {branch}')
+                else:
+                    command = ['git', 'clone', repo_url, clone_destination]
+                    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                    stdout, stderr = process.communicate()
+                    print(f'Cloning repository')
 
                 if process.returncode != 0:
                     ui.messageBox('Error', f'Error cloning repository:\n{stderr}')
@@ -1213,7 +1229,7 @@ pause
         #clone the repo
 
         try:
-            success = self.clone_git_to_folder(repo_url, chosen_folder=sdtd_folder, overrideFolderName=True)
+            success = self.clone_git_to_folder(repo_url, chosen_folder=sdtd_folder, overrideFolderName=True, branch="controlnet-tensorrt-git")
             if success:
                 self.logger.log(f'Successfully cloned StreamDiffusionTD repository into {sdtd_folder}', level='INFO')
                 # Paths to the Text DATs inside the 'streamdiffusionTD' base comp
