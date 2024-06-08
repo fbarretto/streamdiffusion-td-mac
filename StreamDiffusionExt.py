@@ -525,14 +525,25 @@ if exist venv (
         print(f'Cloning to: {clone_destination}')
         # Execute the command to clone the repository
         try:
-            command = ['git', 'clone', repo_url, clone_destination]
-            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-            stdout, stderr = process.communicate()
+            # if reepository exists, pull the latest changes
+            if os.path.exists(clone_destination):
+                command = ['git', '-C', clone_destination, 'pull']
+                process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                stdout, stderr = process.communicate()
 
-            if process.returncode != 0:
-                ui.messageBox('Error', f'Error cloning repository:\n{stderr}')
-                self.logger.log(f'rtLCM: Error cloning repository:\n{stderr}', level='ERROR')
-                return False
+                if process.returncode != 0:
+                    ui.messageBox('Error', f'Error updating repository:\n{stderr}')
+                    self.logger.log(f'rtLCM: Error updating repository:\n{stderr}', level='ERROR')
+                    return False
+            else:
+                command = ['git', 'clone', repo_url, clone_destination]
+                process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                stdout, stderr = process.communicate()
+
+                if process.returncode != 0:
+                    ui.messageBox('Error', f'Error cloning repository:\n{stderr}')
+                    self.logger.log(f'rtLCM: Error cloning repository:\n{stderr}', level='ERROR')
+                    return False
 
         except Exception as e:
             ui.messageBox('Error', f'Failed to execute the command: {e}')
